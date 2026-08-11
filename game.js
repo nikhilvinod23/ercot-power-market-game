@@ -3,7 +3,7 @@
 
   const PROGRESS_KEY = "power-market-solver-progress.v3";
   const THEME_KEY = "power-market-solver-theme.v1";
-  const DAY_AHEAD_INPUT_VERSION = 2;
+  const DAY_AHEAD_INPUT_VERSION = 3;
   const colors = {
     red: "#ff3b30",
     yellow: "#ffd60a",
@@ -1048,7 +1048,7 @@
 
   function cacheElements() {
     [
-      "mode-select-screen", "lmp-mode-button", "network-mode-button", "day-ahead-mode-button", "mode-back-button", "day-ahead-select-screen", "day-ahead-mode-back-button", "day-ahead-full-reset-button", "day-ahead-level-circles", "day-ahead-level-screen", "day-ahead-back-button", "day-ahead-reset-button", "day-ahead-level-title", "day-ahead-level-description", "day-ahead-demand", "day-ahead-offers", "day-ahead-stack", "day-ahead-stack-max", "day-ahead-run-button", "day-ahead-check-button", "day-ahead-result", "day-ahead-prev-button", "day-ahead-next-button", "construction-select-screen", "construction-mode-back-button", "construction-full-reset-button", "construction-level-circles", "construction-level-screen", "construction-back-button", "construction-reset-button", "construction-level-title", "construction-level-description", "construction-piece-tray", "construction-map", "construction-lines", "construction-nodes", "construction-inspector", "construction-check-button", "construction-reveal-button", "construction-feedback", "construction-prev-button", "construction-next-button", "level-select-screen", "level-screen", "level-circles", "level-select-message",
+      "mode-select-screen", "lmp-mode-button", "network-mode-button", "day-ahead-mode-button", "mode-back-button", "day-ahead-select-screen", "day-ahead-mode-back-button", "day-ahead-full-reset-button", "day-ahead-level-circles", "day-ahead-level-message", "day-ahead-level-screen", "day-ahead-back-button", "day-ahead-reset-button", "day-ahead-level-title", "day-ahead-level-description", "day-ahead-demand", "day-ahead-offers", "day-ahead-stack", "day-ahead-stack-max", "day-ahead-run-button", "day-ahead-check-button", "day-ahead-result", "day-ahead-prev-button", "day-ahead-next-button", "construction-select-screen", "construction-mode-back-button", "construction-full-reset-button", "construction-level-circles", "construction-level-screen", "construction-back-button", "construction-reset-button", "construction-level-title", "construction-level-description", "construction-piece-tray", "construction-map", "construction-lines", "construction-nodes", "construction-inspector", "construction-check-button", "construction-reveal-button", "construction-feedback", "construction-prev-button", "construction-next-button", "level-select-screen", "level-screen", "level-circles", "level-select-message",
       "back-button", "reset-level-button", "level-page-title", "map-connections", "map-resources",
       "map-buses", "map-loads", "network-map", "map-title", "map-description", "map-hover-popover",
       "solve-popover", "check-network-button", "network-feedback", "completion-panel", "completion-title",
@@ -1097,8 +1097,10 @@
       state.dayAheadStatuses = new Map(dayAheadEntries.filter(([id, status]) => dayAheadLevels.some((level) => level.id === Number(id)) && ["yellow", "green"].includes(status)).map(([id, status]) => [Number(id), status]));
       state.dayAheadOffers = saved && typeof saved === "object" && saved.dayAheadOffers && typeof saved.dayAheadOffers === "object" ? saved.dayAheadOffers : {};
       if (Number(saved.dayAheadOfferVersion) !== DAY_AHEAD_INPUT_VERSION) {
-        state.dayAheadStatuses = new Map();
-        state.dayAheadOffers = {};
+        const levelZeroStatus = state.dayAheadStatuses.get(0);
+        const levelZeroOffers = state.dayAheadOffers[0];
+        state.dayAheadStatuses = levelZeroStatus ? new Map([[0, levelZeroStatus]]) : new Map();
+        state.dayAheadOffers = levelZeroOffers ? { 0: levelZeroOffers } : {};
       }
     } catch {
       state.statuses = new Map();
@@ -1179,8 +1181,22 @@
     return dayAheadLevels.find((level) => level.id === id) || dayAheadLevels[0];
   }
 
+  function isDayAheadSolved(id) {
+    return ["yellow", "green"].includes(state.dayAheadStatuses.get(id));
+  }
+
+  function dayAheadYellowCount() {
+    return [...state.dayAheadStatuses.values()].filter((status) => status === "yellow").length;
+  }
+
+  function isDayAheadUnlocked(level) {
+    if (!level) return false;
+    if (level.id === 0) return true;
+    return isDayAheadSolved(level.id - 1) && dayAheadYellowCount() <= 1;
+  }
+
   function dayAheadStatus(level) {
-    return state.dayAheadStatuses.get(level.id) || "red";
+    return state.dayAheadStatuses.get(level.id) || (isDayAheadUnlocked(level) ? "red" : "gray");
   }
 
   function renderDayAheadSelect() {
@@ -1193,14 +1209,25 @@
     els["construction-level-screen"].hidden = true;
     els["day-ahead-level-screen"].hidden = true;
     els["day-ahead-select-screen"].hidden = false;
-    const latest = Math.max(...dayAheadLevels.map((level) => level.id));
+    const unlockedIds = dayAheadLevels.filter((level) => isDayAheadUnlocked(level)).map((level) => level.id);
+    const latest = Math.max(...unlockedIds);
     els["day-ahead-level-circles"].innerHTML = dayAheadLevels.map((level) => {
+      const unlocked = isDayAheadUnlocked(level);
       const status = dayAheadStatus(level);
-      const classes = ["level-circle", `status-${status}`, level.id === latest ? "is-latest" : ""].join(" ");
-      return `<button type="button" class="${classes}" data-day-ahead-level="${level.id}" aria-label="${level.title}">${level.id}</button>`;
+      const classes = ["level-circle", `status-${status}`, level.id === latest ? "is-latest" : "", !unlocked ? "is-locked" : ""].filter(Boolean).join(" ");
+      return `<button type="button" class="${classes}" data-day-ahead-level="${level.id}" style="--burst-color:${statusColor(status)}" ${unlocked ? "" : "disabled"} aria-label="${level.title}${unlocked ? "" : ", locked"}">${level.id}</button>`;
     }).join("");
+    const yellow = dayAheadYellowCount();
+    if (yellow >= 2) {
+      const needed = yellow - 1;
+      els["day-ahead-level-message"].hidden = false;
+      els["day-ahead-level-message"].textContent = `Solve ${needed} more level${needed === 1 ? "" : "s"} perfectly to unlock.`;
+    } else {
+      els["day-ahead-level-message"].hidden = true;
+      els["day-ahead-level-message"].textContent = "";
+    }
     els["day-ahead-level-circles"].querySelectorAll("[data-day-ahead-level]").forEach((button) => {
-      button.addEventListener("click", () => openDayAheadLevel(Number(button.dataset.dayAheadLevel)));
+      button.addEventListener("click", () => launchDayAheadLevel(Number(button.dataset.dayAheadLevel)));
     });
   }
 
@@ -1376,6 +1403,7 @@
     if (state.dayAheadResult.remaining > 0 || state.dayAheadResult.overage > 0) {
       state.dayAheadStatuses.delete(level.id);
       saveProgress();
+      renderDayAheadNavigation();
       renderDayAheadResult(level.controlMode === "dispatch" ? "Try again: dispatch exactly the forecast load before checking the schedule." : "Try again: increase the available MW until the forecast load is fully served.", "is-error");
       return;
     }
@@ -1385,6 +1413,7 @@
     const status = perfect ? "green" : "yellow";
     state.dayAheadStatuses.set(level.id, status);
     saveProgress();
+    renderDayAheadNavigation();
     renderDayAheadResult(perfect ? "<strong>Perfect schedule</strong><span>The marginal accepted offer is the DAM LMP.</span>" : "<strong>Valid schedule, but not optimal</strong><span>The load is served, but the awards differ from the least-cost schedule.</span>", perfect ? "is-correct" : "is-close");
   }
 
@@ -1392,11 +1421,30 @@
     const previous = dayAheadLevels.find((candidate) => candidate.id === state.dayAheadLevelId - 1);
     const next = dayAheadLevels.find((candidate) => candidate.id === state.dayAheadLevelId + 1);
     els["day-ahead-prev-button"].disabled = !previous;
-    els["day-ahead-next-button"].disabled = !next;
+    els["day-ahead-next-button"].disabled = !next || !isDayAheadUnlocked(next);
+  }
+
+  function launchDayAheadLevel(id) {
+    if (state.launching) return;
+    const level = getDayAheadLevel(id);
+    const button = els["day-ahead-level-circles"].querySelector(`[data-day-ahead-level="${id}"]`);
+    if (!button || !isDayAheadUnlocked(level)) return;
+    state.launching = true;
+    button.classList.add("is-launching");
+    for (let index = 0; index < level.id; index += 1) {
+      const dot = document.createElement("span");
+      dot.className = "burst-dot";
+      dot.style.setProperty("--angle", `${(360 / level.id) * index}deg`);
+      dot.style.setProperty("--burst-color", statusColor(dayAheadStatus(level)));
+      button.appendChild(dot);
+    }
+    window.setTimeout(() => openDayAheadLevel(id), 620);
   }
 
   function openDayAheadLevel(id = 0) {
     const level = getDayAheadLevel(id);
+    if (!isDayAheadUnlocked(level)) return;
+    state.launching = false;
     state.screen = "day-ahead-level";
     state.dayAheadLevelId = level.id;
     state.dayAheadResult = null;
@@ -2426,7 +2474,7 @@
     });
     els["day-ahead-next-button"].addEventListener("click", () => {
       const next = dayAheadLevels.find((level) => level.id === state.dayAheadLevelId + 1);
-      if (next) openDayAheadLevel(next.id);
+      if (next && isDayAheadUnlocked(next)) openDayAheadLevel(next.id);
     });
     els["day-ahead-run-button"].addEventListener("click", runDayAheadMarket);
     els["day-ahead-check-button"].addEventListener("click", checkDayAheadSchedule);
