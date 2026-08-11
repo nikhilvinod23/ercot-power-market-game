@@ -538,7 +538,7 @@
       demand: 90,
       loadByZone: { west: 20, east: 70 },
       lineLimit: 25,
-      networkLabel: "West → East interface: 25 MW",
+      networkLabel: "West load: 20 MW · East load: 70 MW · West → East interface: 25 MW",
       defaultDispatch: { wind: 45, westGas: 0, eastGas: 45 },
       description: "Two buses are joined by a 25 MW interface. Cheap western energy cannot exceed the interface limit when serving the east load.",
       challenge: "Challenge: dispatch the constrained network and create the correct west/east LMP spread.",
