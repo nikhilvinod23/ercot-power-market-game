@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ERCOT Market Dashboard MVP</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>ERCOT Market Dashboard</h1>
+          <p>Simple operating view for learning how grid conditions shape prices.</p>
+        </div>
+        <div class="top-actions">
+          <nav class="view-tabs" aria-label="Dashboard views">
+            <button id="overviewTab" class="tab-button active" type="button">Overview</button>
+            <button id="marketTab" class="tab-button" type="button">Market</button>
+            <button id="generationTab" class="tab-button" type="button">Generation</button>
+            <button id="weatherTab" class="tab-button" type="button">Weather</button>
+            <button id="forecastTab" class="tab-button" type="button">Forecast</button>
+            <button id="trendsTab" class="tab-button" type="button">Trends</button>
+          </nav>
+          <label class="select-label">
+            <span>Window</span>
+            <select id="liveTimeframeSelect" class="timeframe-select">
+              <option value="3">3h</option>
+              <option value="6" selected>6h</option>
+              <option value="12">12h</option>
+              <option value="24">24h</option>
+              <option value="48">48h</option>
+            </select>
+          </label>
+          <label class="select-label">
+            <span>Fuel chart</span>
+            <select id="fuelChartTypeSelect" class="timeframe-select">
+              <option value="line" selected>Line</option>
+              <option value="area">Area</option>
+            </select>
+          </label>
+          <button id="refreshButton" class="icon-button" type="button" title="Refresh data" aria-label="Refresh data">R</button>
+          <div class="status-pill">
+            <span id="statusDot" class="status-dot"></span>
+            <span id="dataStatus">Connecting</span>
+          </div>
+        </div>
+      </header>
+
+      <main id="overviewView">
+        <section class="panel overview-panel" aria-labelledby="snapshotTitle">
+          <div class="section-heading">
+            <div>
+              <h2 id="snapshotTitle">Grid Snapshot</h2>
+              <p>Current load, available capacity, and reserve cushion.</p>
+            </div>
+            <span id="lastUpdated" class="timestamp"></span>
+          </div>
+          <div id="snapshotGrid" class="metric-grid"></div>
+        </section>
+
+        <section class="dashboard-grid">
+          <article class="panel" aria-labelledby="scarcityTitle">
+            <div class="section-heading">
+              <div>
+                <h2 id="scarcityTitle">Scarcity Watch</h2>
+                <p>Reserve conditions, outage pressure, and ancillary signal.</p>
+              </div>
+            </div>
+            <div id="scarcityGrid" class="metric-grid compact"></div>
+            <div id="scarcityBand" class="risk-band"></div>
+          </article>
+
+          <article class="panel" aria-labelledby="explainTitle">
+            <div class="section-heading">
+              <div>
+                <h2 id="explainTitle">Market Notes</h2>
+                <p>Plain-English interpretation of the current screen.</p>
+              </div>
+            </div>
+            <div id="conceptList" class="concept-list"></div>
+          </article>
+        </section>
+
+        <section class="panel conclusions-panel" aria-labelledby="conclusionsTitle">
+          <div class="section-heading">
+            <div>
+              <h2 id="conclusionsTitle">Conclusions</h2>
+              <p>Use these generated prompts to turn dashboard readings into market explanations.</p>
+            </div>
+          </div>
+          <div id="conclusions" class="conclusions"></div>
+        </section>
+      </main>
+
+      <main id="marketView" class="hidden">
+        <section class="dashboard-grid">
+          <article class="panel" aria-labelledby="priceTitle">
+            <div class="section-heading">
+              <div>
+                <h2 id="priceTitle">Price Monitor</h2>
+                <p>Live real-time hub prices from ERCOT dashboard data.</p>
+              </div>
+            </div>
+            <div id="priceGrid" class="price-grid"></div>
+            <canvas id="priceChart" width="680" height="260" aria-label="Real-time price trend"></canvas>
+          </article>
+
+          <article class="panel" aria-labelledby="congestionTitle">
+            <div class="section-heading">
+              <div>
+                <h2 id="congestionTitle">Congestion View</h2>
+                <p>Regional price spreads that hint at transmission constraints.</p>
+              </div>
+            </div>
+            <div id="spreadGrid" class="spread-list"></div>
+          </article>
+
+          <article class="panel" aria-labelledby="spikeTitle">
+            <div class="section-heading">
+              <div>
+                <h2 id="spikeTitle">Price Spike Detector</h2>
+                <p>Intervals where real-time hub prices crossed selected thresholds.</p>
+              </div>
+            </div>
+            <div id="spikeList" class="conclusions"></div>
+          </article>
+
+          <article class="panel" aria-labelledby="exportTitle">
+            <div class="section-heading">
+              <div>
+                <h2 id="exportTitle">Export Data</h2>
+                <p>Download locally collected snapshots for spreadsheet analysis.</p>
+              </div>
+            </div>
+            <div class="button-row">
+              <button id="exportCsvButton" class="action-button" type="button">Export CSV</button>
+              <button id="exportJsonButton" class="action-button" type="button">Export JSON</button>
+            </div>
+            <p id="exportStatus" class="helper-text"></p>
+          </article>
+        </section>
+      </main>
+
+      <main id="generationView" class="hidden">
+        <section class="dashboard-grid">
+          <article class="panel" aria-labelledby="fuelTitle">
+            <div class="section-heading">
+              <div>
+                <h2 id="fuelTitle">Fuel Mix</h2>
+                <p>Current generation by source and how it has changed over time.</p>
+              </div>
+            </div>
+            <div id="fuelMix" class="bar-list"></div>
+            <canvas id="fuelMixChart" width="680" height="260" aria-label="Fuel mix over time"></canvas>
+          </article>
+
+          <article class="panel" aria-labelledby="netLoadTitle">
+            <div class="section-heading">
+              <div>
+                <h2 id="netLoadTitle">Net Load</h2>
+                <p>Load minus wind and solar over the selected live window.</p>
+              </div>
+            </div>
+            <canvas id="netLoadChart" width="680" height="260" aria-label="Net load over time"></canvas>
+          </article>
+
+          <article class="panel" aria-labelledby="renewablesTitle">
+            <div class="section-heading">
+              <div>
+                <h2 id="renewablesTitle">Renewables</h2>
+                <p>Live wind and solar output. Forecast fields need Public API ingestion.</p>
+              </div>
+            </div>
+            <div id="renewablesGrid" class="metric-grid compact"></div>
+            <canvas id="renewablesChart" width="680" height="220" aria-label="Renewable forecast error"></canvas>
+          </article>
+        </section>
+      </main>
+
+      <main id="weatherView" class="hidden">
+        <section class="panel overview-panel" aria-labelledby="weatherTitle">
+          <div class="section-heading">
+            <div>
+              <h2 id="weatherTitle">Weather</h2>
+              <p>Major ERCOT city conditions that influence load, solar, wind, and prices.</p>
+            </div>
+            <span id="weatherUpdated" class="timestamp"></span>
+          </div>
+          <div id="weatherGrid" class="metric-grid"></div>
+        </section>
+        <section class="panel" aria-labelledby="weatherNotesTitle">
+          <div class="section-heading">
+            <div>
+              <h2 id="weatherNotesTitle">Weather Notes</h2>
+              <p>Quick interpretation of current weather risk.</p>
+            </div>
+          </div>
+          <div id="weatherNotes" class="conclusions"></div>
+        </section>
+      </main>
+
+      <main id="forecastView" class="hidden">
+        <section class="panel overview-panel" aria-labelledby="forecastTitle">
+          <div class="section-heading">
+            <div>
+              <h2 id="forecastTitle">Weather and Price Forecast</h2>
+              <p>Open-Meteo weather forecast mapped to price risk using locally observed weather and price relationships.</p>
+            </div>
+            <div class="heading-actions">
+              <label class="select-label">
+                <span>Horizon</span>
+                <select id="forecastHorizonSelect" class="timeframe-select">
+                  <option value="6">6h</option>
+                  <option value="12" selected>12h</option>
+                  <option value="24">24h</option>
+                  <option value="48">48h</option>
+                </select>
+              </label>
+              <span id="forecastUpdated" class="timestamp"></span>
+            </div>
+          </div>
+          <div id="forecastMetricGrid" class="metric-grid"></div>
+        </section>
+
+        <section class="dashboard-grid">
+          <article class="panel">
+            <div class="section-heading">
+              <div>
+                <h2>Forecast Weather</h2>
+                <p>Average ERCOT-city temperature, cloud cover, and wind speed.</p>
+              </div>
+            </div>
+            <canvas id="forecastWeatherChart" width="680" height="260" aria-label="Forecast weather"></canvas>
+          </article>
+
+          <article class="panel">
+            <div class="section-heading">
+              <div>
+                <h2>Forecast Price Risk</h2>
+                <p>Estimated hub price pressure from weather, net load, and recent market conditions.</p>
+              </div>
+            </div>
+            <canvas id="forecastPriceChart" width="680" height="260" aria-label="Forecast price risk"></canvas>
+          </article>
+
+          <article class="panel">
+            <div class="section-heading">
+              <div>
+                <h2>Forecast vs Actual</h2>
+                <p>Compares saved forecasts with observed weather and price after target time passes.</p>
+              </div>
+            </div>
+            <div id="forecastComparisonList" class="conclusions"></div>
+          </article>
+
+          <article class="panel">
+            <div class="section-heading">
+              <div>
+                <h2>WeatherNext 2</h2>
+                <p>Connection status for Google DeepMind WeatherNext 2.</p>
+              </div>
+            </div>
+            <div id="weatherNextStatus" class="conclusions"></div>
+          </article>
+        </section>
+      </main>
+
+      <main id="trendsView" class="hidden">
+        <section class="panel overview-panel" aria-labelledby="trendTitle">
+          <div class="section-heading">
+            <div>
+              <h2 id="trendTitle">Stored Trends</h2>
+              <p>Built from snapshots collected in this browser's local storage.</p>
+            </div>
+            <div class="heading-actions">
+              <label class="select-label">
+                <span>Window</span>
+                <select id="trendTimeframeSelect" class="timeframe-select">
+                  <option value="1">1d</option>
+                  <option value="3">3d</option>
+                  <option value="7" selected>7d</option>
+                </select>
+              </label>
+              <span id="trendWindow" class="timestamp"></span>
+            </div>
+          </div>
+          <div id="trendMetricGrid" class="metric-grid"></div>
+        </section>
+
+        <section class="dashboard-grid">
+          <article class="panel">
+            <div class="section-heading">
+              <div>
+                <h2>Load and Reserves</h2>
+                <p>Stored observations over the last seven days.</p>
+              </div>
+            </div>
+            <canvas id="weeklyLoadChart" width="680" height="260" aria-label="Weekly load and reserves"></canvas>
+          </article>
+
+          <article class="panel">
+            <div class="section-heading">
+              <div>
+                <h2>Price and Congestion</h2>
+                <p>Houston real-time price and Houston-West basis.</p>
+              </div>
+            </div>
+            <canvas id="weeklyPriceChart" width="680" height="260" aria-label="Weekly price and congestion"></canvas>
+          </article>
+
+          <article class="panel">
+            <div class="section-heading">
+              <div>
+                <h2>Renewable Output</h2>
+                <p>Wind and solar actual generation from stored snapshots.</p>
+              </div>
+            </div>
+            <canvas id="weeklyRenewablesChart" width="680" height="260" aria-label="Weekly renewable output"></canvas>
+          </article>
+
+          <article class="panel">
+            <div class="section-heading">
+              <div>
+                <h2>Fuel Mix History</h2>
+                <p>Stored gas, wind, solar, coal, nuclear, storage, and other observations.</p>
+              </div>
+            </div>
+            <canvas id="weeklyFuelMixChart" width="680" height="260" aria-label="Weekly fuel mix history"></canvas>
+          </article>
+
+          <article class="panel">
+            <div class="section-heading">
+              <div>
+                <h2>Trend Notes</h2>
+                <p>Interpretation based on the data collected locally so far.</p>
+              </div>
+            </div>
+            <div id="trendNotes" class="conclusions"></div>
+          </article>
+        </section>
+      </main>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
