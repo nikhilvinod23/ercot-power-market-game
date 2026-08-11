@@ -1419,6 +1419,10 @@
 
   function renderDayAheadOffers(level) {
     const values = dayAheadOfferValues(level);
+    if (level.controlMode === "commitment") {
+      els["day-ahead-offers"].innerHTML = level.resources.map((resource) => `<article class="day-ahead-offer"><div class="day-ahead-offer-info"><strong>${resource.name}</strong><span>Physical capacity: ${resource.capacity} MW</span><span>${dayAheadCurveSummary(resource)} - Startup cost: $${resource.startupCost || 0}/day</span></div><div class="day-ahead-offer-control"><label class="day-ahead-control-label">Commit unit</label><button type="button" class="day-ahead-toggle ${values[resource.id] ? "is-on" : ""}" aria-pressed="${values[resource.id] ? "true" : "false"}" data-day-ahead-offer="${resource.id}" data-day-ahead-kind="commitment" aria-label="Toggle commitment for ${resource.name}">${values[resource.id] ? "ON" : "OFF"}</button></div></article>`).join("");
+      return;
+    }
     if (["commitmentReserve", "integrated"].includes(level.controlMode)) {
       els["day-ahead-offers"].innerHTML = level.resources.map((resource) => {
         const value = values[resource.id];
@@ -1849,7 +1853,7 @@
       state.dayAheadStatuses.delete(level.id);
       saveProgress();
       renderDayAheadNavigation();
-      renderDayAheadResult(["dispatch", "demandCurve", "congestionDemand"].includes(level.controlMode) ? "Try again: match the load, demand curve, and network constraints before checking the schedule." : "Try again: increase the available MW until the forecast load is fully served.", "is-error");
+      renderDayAheadResult(["dispatch", "demandCurve", "congestionDemand"].includes(level.controlMode) ? "Try again: match the load and network constraints before checking the schedule." : "Try again: increase the available MW until the forecast load is fully served.", "is-error");
       return;
     }
     const optimal = ["dispatch", "demandCurve"].includes(level.controlMode) ? solveDayAheadDispatch(level) : ["congestion", "congestionDemand"].includes(level.controlMode) ? solveCongestion(level, level.defaultDispatch) : level.controlMode === "commitment" ? solveOptimalCommitment(level) : level.controlMode === "reserve" ? solveOptimalReserve(level) : ["commitmentReserve", "integrated"].includes(level.controlMode) ? solveOptimalCommitmentReserve(level) : null;
@@ -1935,7 +1939,8 @@
     } else if (level.controlMode === "reserve") {
       state.dayAheadOffers[level.id] = { ...level.defaultReserve };
     } else if (["dispatch", "congestion", "forecast"].includes(level.controlMode)) {
-      state.dayAheadOffers[level.id] = { ...(level.defaultDispatch || level.expectedAwards) };
+      const dispatchDefaults = level.defaultDispatch && Object.values(level.defaultDispatch).some((value) => Number(value) > 0) ? level.defaultDispatch : level.expectedAwards;
+      state.dayAheadOffers[level.id] = { ...dispatchDefaults };
     } else {
       state.dayAheadOffers[level.id] = { ...level.expectedAwards };
     }
@@ -2958,8 +2963,12 @@
       const level = getDayAheadLevel();
       const id = button.dataset.dayAheadOffer;
       if (!state.dayAheadOffers[level.id] || typeof state.dayAheadOffers[level.id] !== "object") state.dayAheadOffers[level.id] = {};
-      if (!state.dayAheadOffers[level.id][id] || typeof state.dayAheadOffers[level.id][id] !== "object") state.dayAheadOffers[level.id][id] = { commitment: 0, dispatch: 0, reserve: 0 };
-      state.dayAheadOffers[level.id][id].commitment = state.dayAheadOffers[level.id][id].commitment ? 0 : 1;
+      if (level.controlMode === "commitment") {
+        state.dayAheadOffers[level.id][id] = state.dayAheadOffers[level.id][id] ? 0 : 1;
+      } else {
+        if (!state.dayAheadOffers[level.id][id] || typeof state.dayAheadOffers[level.id][id] !== "object") state.dayAheadOffers[level.id][id] = { commitment: 0, dispatch: 0, reserve: 0 };
+        state.dayAheadOffers[level.id][id].commitment = state.dayAheadOffers[level.id][id].commitment ? 0 : 1;
+      }
       state.dayAheadResult = null;
       renderDayAheadOffers(level);
       renderDayAheadStack(level);
