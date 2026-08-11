@@ -82,6 +82,16 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--blue); outl
 .day-ahead-offer-info { display: grid; gap: 3px; }
 .day-ahead-offer-info strong { font-size: 0.86rem; }
 .day-ahead-offer-info span { color: var(--muted); font-size: 0.74rem; }
+.day-ahead-curve { display: block; width: 100%; max-width: 190px; height: 48px; margin-top: 3px; }
+.day-ahead-curve-axis { stroke: var(--muted); stroke-width: 1; }
+.day-ahead-curve-line { fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.day-ahead-curve-line.wind { stroke: var(--blue); }
+.day-ahead-curve-line.solar { stroke: #d39e00; }
+.day-ahead-curve-line.gas { stroke: var(--purple); }
+.day-ahead-curve-line.hydro { stroke: #168de2; }
+.day-ahead-curve-line.battery { stroke: #0f9dcc; }
+.day-ahead-curve-line.cycle { stroke: #5856d6; }
+.day-ahead-curve-line.peaker { stroke: var(--red); }
 .day-ahead-offer-control { display: grid; gap: 3px; }
 .day-ahead-offer-control input { width: 100%; accent-color: var(--orange); }
 .day-ahead-offer-readout { color: var(--ink); font-size: 0.75rem; font-weight: 700; text-align: right; }

@@ -3,6 +3,7 @@
 
   const PROGRESS_KEY = "power-market-solver-progress.v3";
   const THEME_KEY = "power-market-solver-theme.v1";
+  const DAY_AHEAD_INPUT_VERSION = 2;
   const colors = {
     red: "#ff3b30",
     yellow: "#ffd60a",
@@ -513,17 +514,19 @@
     },
     {
       id: 1,
-      title: "Level 1: More suppliers",
-      theme: "Offer stacking",
+      title: "Level 1: Curve dispatch",
+      theme: "Piecewise-linear offers",
       demand: 90,
-      description: "Five resources submit fixed-price offers into the same unconstrained bus. The market accepts the cheapest offers first.",
-      challenge: "Challenge: keep enough low-cost capacity available so only 5 MW comes from the peaker.",
+      controlMode: "dispatch",
+      defaultDispatch: { wind: 0, solar: 0, gas: 0, hydro: 0, peaker: 0 },
+      description: "Physical capacity is fixed. Choose the dispatch for each resource from its piecewise-linear offer curve.",
+      challenge: "Challenge: serve 90 MW at the least cost. Increasing a resource past its low-cost segment raises its marginal offer.",
       resources: [
-        { id: "wind", name: "West wind", capacity: 20, offer: 0, className: "wind" },
-        { id: "solar", name: "Solar field", capacity: 20, offer: 8, className: "solar" },
-        { id: "gas", name: "Gas plant", capacity: 30, offer: 28, className: "gas" },
-        { id: "hydro", name: "Hydro unit", capacity: 15, offer: 35, className: "hydro" },
-        { id: "peaker", name: "Peaker plant", capacity: 30, offer: 75, className: "peaker" }
+        { id: "wind", name: "West wind", capacity: 20, offer: 0, className: "wind", offerCurve: [{ mw: 0, price: 0 }, { mw: 20, price: 0 }] },
+        { id: "solar", name: "Solar field", capacity: 20, offer: 8, className: "solar", offerCurve: [{ mw: 0, price: 8 }, { mw: 20, price: 8 }] },
+        { id: "gas", name: "Gas plant", capacity: 30, offer: 20, className: "gas", offerCurve: [{ mw: 0, price: 20 }, { mw: 10, price: 20 }, { mw: 30, price: 34 }] },
+        { id: "hydro", name: "Hydro unit", capacity: 15, offer: 35, className: "hydro", offerCurve: [{ mw: 0, price: 35 }, { mw: 15, price: 35 }] },
+        { id: "peaker", name: "Peaker plant", capacity: 30, offer: 75, className: "peaker", offerCurve: [{ mw: 0, price: 75 }, { mw: 30, price: 75 }] }
       ],
       expectedAwards: { wind: 20, solar: 20, gas: 30, hydro: 15, peaker: 5 }
     },
@@ -1093,6 +1096,10 @@
       const dayAheadEntries = saved && typeof saved === "object" ? Object.entries(saved.dayAheadStatuses || {}) : [];
       state.dayAheadStatuses = new Map(dayAheadEntries.filter(([id, status]) => dayAheadLevels.some((level) => level.id === Number(id)) && ["yellow", "green"].includes(status)).map(([id, status]) => [Number(id), status]));
       state.dayAheadOffers = saved && typeof saved === "object" && saved.dayAheadOffers && typeof saved.dayAheadOffers === "object" ? saved.dayAheadOffers : {};
+      if (Number(saved.dayAheadOfferVersion) !== DAY_AHEAD_INPUT_VERSION) {
+        state.dayAheadStatuses = new Map();
+        state.dayAheadOffers = {};
+      }
     } catch {
       state.statuses = new Map();
       state.constructionStatuses = new Map();
@@ -1108,7 +1115,8 @@
       constructionStatuses: Object.fromEntries(state.constructionStatuses),
       constructionDrafts: Object.fromEntries(state.constructionDrafts),
       dayAheadStatuses: Object.fromEntries(state.dayAheadStatuses),
-      dayAheadOffers: state.dayAheadOffers
+      dayAheadOffers: state.dayAheadOffers,
+      dayAheadOfferVersion: DAY_AHEAD_INPUT_VERSION
     }));
   }
 
@@ -1198,14 +1206,32 @@
 
   function dayAheadOfferValues(level) {
     const saved = state.dayAheadOffers[level.id] && typeof state.dayAheadOffers[level.id] === "object" ? state.dayAheadOffers[level.id] : {};
-    return Object.fromEntries(level.resources.map((resource) => [resource.id, Number.isFinite(Number(saved[resource.id])) ? Math.max(0, Math.min(resource.capacity, Number(saved[resource.id]))) : resource.capacity]));
+    return Object.fromEntries(level.resources.map((resource) => {
+      const fallback = level.controlMode === "dispatch" ? Number(level.defaultDispatch?.[resource.id] ?? 0) : resource.capacity;
+      return [resource.id, Number.isFinite(Number(saved[resource.id])) ? Math.max(0, Math.min(resource.capacity, Number(saved[resource.id]))) : fallback];
+    }));
+  }
+
+  function renderDayAheadCurve(resource) {
+    const points = Array.isArray(resource.offerCurve) ? resource.offerCurve : [];
+    if (points.length < 2) return "";
+    const maxPrice = Math.max(1, ...points.map((point) => Number(point.price) || 0));
+    const maxMw = Math.max(1, resource.capacity);
+    const polyline = points.map((point) => `${10 + (Number(point.mw) / maxMw) * 160},${44 - (Number(point.price) / maxPrice) * 32}`).join(" ");
+    return `<svg class="day-ahead-curve" viewBox="0 0 180 55" role="img" aria-label="${resource.name} offer curve"><line class="day-ahead-curve-axis" x1="10" y1="44" x2="170" y2="44"></line><line class="day-ahead-curve-axis" x1="10" y1="44" x2="10" y2="10"></line><polyline class="day-ahead-curve-line ${resource.className}" points="${polyline}"></polyline></svg>`;
+  }
+
+  function dayAheadCurveSummary(resource) {
+    if (!Array.isArray(resource.offerCurve)) return `Offer price: $${resource.offer}/MWh`;
+    return `Curve: ${resource.offerCurve.map((point) => `${point.mw} MW @ $${point.price}`).join(" → ")}`;
   }
 
   function renderDayAheadOffers(level) {
     const values = dayAheadOfferValues(level);
+    const dispatchMode = level.controlMode === "dispatch";
     els["day-ahead-offers"].innerHTML = level.resources.map((resource) => `<article class="day-ahead-offer">
-      <div class="day-ahead-offer-info"><strong>${resource.name}</strong><span>Offer price: $${resource.offer}/MWh</span><span>Maximum: ${resource.capacity} MW</span></div>
-      <div class="day-ahead-offer-control"><input type="range" min="0" max="${resource.capacity}" step="1" value="${values[resource.id]}" data-day-ahead-offer="${resource.id}" aria-label="Available capacity for ${resource.name}"><span class="day-ahead-offer-readout" data-day-ahead-readout="${resource.id}">${values[resource.id]} MW available</span></div>
+      <div class="day-ahead-offer-info"><strong>${resource.name}</strong><span>${dispatchMode ? `Fixed capacity: ${resource.capacity} MW` : `Maximum: ${resource.capacity} MW`}</span><span>${dayAheadCurveSummary(resource)}</span>${renderDayAheadCurve(resource)}</div>
+      <div class="day-ahead-offer-control"><input type="range" min="0" max="${resource.capacity}" step="1" value="${values[resource.id]}" data-day-ahead-offer="${resource.id}" aria-label="${dispatchMode ? `Dispatch target for ${resource.name}` : `Available capacity for ${resource.name}`}" ><span class="day-ahead-offer-readout" data-day-ahead-readout="${resource.id}">${values[resource.id]} MW ${dispatchMode ? "dispatch" : "available"}</span></div>
     </article>`).join("");
   }
 
@@ -1225,7 +1251,70 @@
     els["day-ahead-result"].innerHTML = message;
   }
 
+  function dayAheadCurvePrice(resource, mw) {
+    const points = Array.isArray(resource.offerCurve) ? resource.offerCurve : [];
+    if (points.length < 2) return Number(resource.offer) || 0;
+    const quantity = Math.max(0, Math.min(resource.capacity, Number(mw) || 0));
+    if (quantity <= Number(points[0].mw)) return Number(points[0].price);
+    for (let index = 1; index < points.length; index += 1) {
+      const previous = points[index - 1];
+      const current = points[index];
+      if (quantity <= Number(current.mw)) {
+        const width = Number(current.mw) - Number(previous.mw);
+        const fraction = width > 0 ? (quantity - Number(previous.mw)) / width : 0;
+        return Number(previous.price) + (Number(current.price) - Number(previous.price)) * fraction;
+      }
+    }
+    return Number(points[points.length - 1].price);
+  }
+
+  function dayAheadCurveCost(resource, mw) {
+    const points = Array.isArray(resource.offerCurve) ? resource.offerCurve : [];
+    const quantity = Math.max(0, Math.min(resource.capacity, Number(mw) || 0));
+    if (points.length < 2) return quantity * (Number(resource.offer) || 0);
+    let cost = 0;
+    let covered = 0;
+    for (let index = 1; index < points.length && covered < quantity; index += 1) {
+      const previous = points[index - 1];
+      const current = points[index];
+      const start = Number(previous.mw);
+      const end = Number(current.mw);
+      const used = Math.max(0, Math.min(quantity, end) - Math.max(covered, start));
+      if (!used) continue;
+      const startPrice = Number(previous.price);
+      const endPrice = Number(current.price);
+      const fraction = end > start ? used / (end - start) : 0;
+      const usedEndPrice = startPrice + (endPrice - startPrice) * fraction;
+      cost += used * (startPrice + usedEndPrice) / 2;
+      covered = Math.max(covered, Math.min(quantity, end));
+    }
+    return cost;
+  }
+
+  function solveDayAheadDispatch(level) {
+    if (level.controlMode !== "dispatch") return null;
+    const blocks = [];
+    level.resources.forEach((resource, resourceIndex) => {
+      for (let mw = 1; mw <= resource.capacity; mw += 1) {
+        blocks.push({ resourceId: resource.id, resourceIndex, marginalCost: dayAheadCurveCost(resource, mw) - dayAheadCurveCost(resource, mw - 1) });
+      }
+    });
+    blocks.sort((a, b) => a.marginalCost - b.marginalCost || a.resourceIndex - b.resourceIndex);
+    const awards = Object.fromEntries(level.resources.map((resource) => [resource.id, 0]));
+    blocks.slice(0, level.demand).forEach((block) => { awards[block.resourceId] += 1; });
+    return { awards, feasible: blocks.length >= level.demand };
+  }
+
   function clearDayAhead(level, values) {
+    if (level.controlMode === "dispatch") {
+      const awards = Object.fromEntries(level.resources.map((resource) => [resource.id, Math.max(0, Math.min(resource.capacity, Number(values[resource.id]) || 0))]));
+      const totalDispatch = Object.values(awards).reduce((sum, value) => sum + value, 0);
+      const remaining = Math.max(0, level.demand - totalDispatch);
+      const overage = Math.max(0, totalDispatch - level.demand);
+      const totalCost = level.resources.reduce((sum, resource) => sum + dayAheadCurveCost(resource, awards[resource.id]), 0);
+      const marginal = remaining <= 0 && overage <= 0 ? [...level.resources].filter((resource) => awards[resource.id] > 0).sort((a, b) => dayAheadCurvePrice(a, awards[a.id]) - dayAheadCurvePrice(b, awards[b.id])).at(-1) : null;
+      return { awards, remaining, overage, totalCost, lmp: marginal ? dayAheadCurvePrice(marginal, awards[marginal.id]) : null };
+    }
     const awards = {};
     let remaining = level.demand;
     let totalCost = 0;
@@ -1242,10 +1331,13 @@
   function validateDayAheadLevels() {
     const errors = [];
     dayAheadLevels.forEach((level) => {
-      const result = clearDayAhead(level, Object.fromEntries(level.resources.map((resource) => [resource.id, resource.capacity])));
+      const defaults = level.controlMode === "dispatch" ? level.expectedAwards : Object.fromEntries(level.resources.map((resource) => [resource.id, resource.capacity]));
+      const result = clearDayAhead(level, defaults);
       if (result.remaining > 0) errors.push(`${level.title} cannot serve its demand.`);
+      const optimal = level.controlMode === "dispatch" ? solveDayAheadDispatch(level) : null;
       level.resources.forEach((resource) => {
-        if (Math.abs(result.awards[resource.id] - level.expectedAwards[resource.id]) > 0.01) errors.push(`${level.title} has an incorrect ${resource.name} award.`);
+        const expected = optimal ? optimal.awards[resource.id] : level.expectedAwards[resource.id];
+        if (Math.abs(result.awards[resource.id] - expected) > 0.01 || Math.abs(level.expectedAwards[resource.id] - expected) > 0.01) errors.push(`${level.title} has an incorrect ${resource.name} award.`);
       });
       if (!Number.isFinite(result.lmp)) errors.push(`${level.title} has no marginal price.`);
     });
@@ -1258,12 +1350,21 @@
     const values = dayAheadOfferValues(level);
     state.dayAheadResult = clearDayAhead(level, values);
     const { awards, remaining, totalCost } = state.dayAheadResult;
-    const awardRows = level.resources.map((resource) => `<span>${resource.name}</span><span>${awards[resource.id].toFixed(0)} MW @ $${resource.offer}</span>`).join("");
-    if (remaining > 0) {
-      renderDayAheadResult(`<strong>Shortfall: ${remaining.toFixed(0)} MW</strong><span>There is not enough offered capacity to serve the forecast load.</span><div class="day-ahead-result-grid">${awardRows}</div>`, "is-error");
+    const awardRows = level.resources.map((resource) => {
+      const displayedPrice = level.controlMode === "dispatch" ? dayAheadCurvePrice(resource, awards[resource.id]).toFixed(1) : Number(resource.offer).toFixed(0);
+      return `<span>${resource.name}</span><span>${awards[resource.id].toFixed(0)} MW @ $${displayedPrice}</span>`;
+    }).join("");
+    if (level.controlMode === "dispatch" && state.dayAheadResult.overage > 0) {
+      renderDayAheadResult(`<strong>Overschedule: ${state.dayAheadResult.overage.toFixed(0)} MW</strong><span>Dispatch must equal the ${level.demand} MW forecast exactly.</span><div class="day-ahead-result-grid">${awardRows}</div>`, "is-error");
       return;
     }
-    renderDayAheadResult(`<strong>DAM LMP: $${state.dayAheadResult.lmp}/MWh</strong><span>All ${level.demand} MW are awarded at the least-cost available offers.</span><div class="day-ahead-result-grid">${awardRows}<span>Total energy cost</span><span>$${totalCost.toFixed(0)}</span></div>`, "");
+    if (remaining > 0) {
+      renderDayAheadResult(`<strong>Shortfall: ${remaining.toFixed(0)} MW</strong><span>${level.controlMode === "dispatch" ? "Dispatch exactly the forecast load before checking the schedule." : "There is not enough offered capacity to serve the forecast load."}</span><div class="day-ahead-result-grid">${awardRows}</div>`, "is-error");
+      return;
+    }
+    const headline = level.controlMode === "dispatch" ? `Implied marginal offer: $${state.dayAheadResult.lmp}/MWh` : `DAM LMP: $${state.dayAheadResult.lmp}/MWh`;
+    const explanation = level.controlMode === "dispatch" ? `Dispatch matches the ${level.demand} MW forecast. Curve cost is calculated for every awarded MW.` : `All ${level.demand} MW are awarded at the least-cost available offers.`;
+    renderDayAheadResult(`<strong>${headline}</strong><span>${explanation}</span><div class="day-ahead-result-grid">${awardRows}<span>Total energy cost</span><span>$${totalCost.toFixed(0)}</span></div>`, "");
   }
 
   function checkDayAheadSchedule() {
@@ -1272,13 +1373,15 @@
       renderDayAheadResult("Run the market before checking the schedule.", "is-error");
       return;
     }
-    if (state.dayAheadResult.remaining > 0) {
+    if (state.dayAheadResult.remaining > 0 || state.dayAheadResult.overage > 0) {
       state.dayAheadStatuses.delete(level.id);
       saveProgress();
-      renderDayAheadResult("Try again: increase the available MW until the forecast load is fully served.", "is-error");
+      renderDayAheadResult(level.controlMode === "dispatch" ? "Try again: dispatch exactly the forecast load before checking the schedule." : "Try again: increase the available MW until the forecast load is fully served.", "is-error");
       return;
     }
-    const perfect = level.resources.every((resource) => Math.abs(state.dayAheadResult.awards[resource.id] - level.expectedAwards[resource.id]) <= 0.01);
+    const optimal = level.controlMode === "dispatch" ? solveDayAheadDispatch(level) : null;
+    const expectedAwards = optimal ? optimal.awards : level.expectedAwards;
+    const perfect = level.resources.every((resource) => Math.abs(state.dayAheadResult.awards[resource.id] - expectedAwards[resource.id]) <= 0.01);
     const status = perfect ? "green" : "yellow";
     state.dayAheadStatuses.set(level.id, status);
     saveProgress();
@@ -2335,7 +2438,7 @@
       if (!state.dayAheadOffers[level.id] || typeof state.dayAheadOffers[level.id] !== "object") state.dayAheadOffers[level.id] = {};
       state.dayAheadOffers[level.id][id] = Number(input.value);
       const readout = els["day-ahead-offers"].querySelector(`[data-day-ahead-readout="${id}"]`);
-      if (readout) readout.textContent = `${input.value} MW available`;
+      if (readout) readout.textContent = `${input.value} MW ${level.controlMode === "dispatch" ? "dispatch" : "available"}`;
       state.dayAheadResult = null;
       renderDayAheadStack(level);
       renderDayAheadResult();

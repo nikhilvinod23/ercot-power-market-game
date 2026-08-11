@@ -35,7 +35,7 @@
             <button type="button" class="toolbar-button" id="day-ahead-reset-button" aria-label="Reset day-ahead level">&#8635;</button>
           </div>
         </header>
-        <p class="day-ahead-instruction"><strong>Rules:</strong> Set the available MW for each offer, then run the day-ahead market. The least-cost feasible schedule wins.</p>
+        <p class="day-ahead-instruction"><strong>Rules:</strong> Set the MW for each resource, then run the day-ahead market. The least-cost feasible schedule wins.</p>
         <p id="day-ahead-level-description" class="day-ahead-level-description"></p>
         <div class="day-ahead-summary">
           <span>Operating hour: 1</span>
@@ -45,7 +45,7 @@
         <div class="day-ahead-layout">
           <section class="day-ahead-panel" aria-labelledby="day-ahead-offer-title">
             <h3 id="day-ahead-offer-title">Supply offers</h3>
-            <p class="day-ahead-panel-note">Offer prices are fixed for this tutorial. Adjust available capacity to see how withholding changes the clearing result.</p>
+            <p class="day-ahead-panel-note">Set each resource's MW with its slider. Curve levels use the offer curve to price every MW.</p>
             <div id="day-ahead-offers" class="day-ahead-offers"></div>
           </section>
           <section class="day-ahead-panel" aria-labelledby="day-ahead-stack-title">
