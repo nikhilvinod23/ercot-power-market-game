@@ -1439,13 +1439,14 @@
 
   function renderDayAheadStack(level) {
     const values = dayAheadOfferValues(level);
-    const totalCapacity = ["commitmentReserve", "integrated"].includes(level.controlMode) ? level.resources.length : level.resources.reduce((sum, resource) => sum + dayAheadControlConfig(level, resource).max, 0);
+    const dispatchStackMode = ["commitmentReserve", "integrated"].includes(level.controlMode);
+    const totalCapacity = dispatchStackMode ? level.resources.reduce((sum, resource) => sum + resource.capacity, 0) : level.resources.reduce((sum, resource) => sum + dayAheadControlConfig(level, resource).max, 0);
     els["day-ahead-stack-max"].textContent = `${totalCapacity} MW offered`;
     els["day-ahead-stack"].innerHTML = [...level.resources].sort((a, b) => dayAheadCurvePrice(a, 1) - dayAheadCurvePrice(b, 1)).map((resource) => {
       const rawValue = values[resource.id];
-      const available = ["commitmentReserve", "integrated"].includes(level.controlMode) ? rawValue.commitment : rawValue;
+      const available = dispatchStackMode ? rawValue.dispatch : rawValue;
       const width = totalCapacity ? Math.max(0, Math.min(100, (available / totalCapacity) * 100)) : 0;
-      const valueLabel = ["commitment", "commitmentReserve", "integrated"].includes(level.controlMode) ? (available ? "ON" : "OFF") : `${available} MW`;
+      const valueLabel = dispatchStackMode ? `${available} MW` : level.controlMode === "commitment" ? (available ? "ON" : "OFF") : `${available} MW`;
       const priceLabel = level.controlMode === "reserve" ? `$${resource.reserveOffer}/MW reserve` : `$${resource.offer}/MWh`;
       return `<div class="day-ahead-stack-row"><span class="day-ahead-stack-label">${resource.name}</span><div class="day-ahead-stack-track"><span class="day-ahead-stack-segment ${resource.className}" style="width:${width}%">${available ? valueLabel : ""}</span></div><span class="day-ahead-stack-value">${priceLabel}</span></div>`;
     }).join("");
