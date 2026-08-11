@@ -591,19 +591,21 @@
     {
       id: 5,
       title: "Level 5: Forecast risk",
-      theme: "Day-ahead versus real-time",
-      controlMode: "forecast",
+      theme: "Expected-value hedge",
+      controlMode: "forecastHedge",
       demand: 120,
       actualDemand: 130,
-      defaultDispatch: { wind: 40, gas: 80, peaker: 0 },
-      description: "The day-ahead wind forecast is 40 MW, but only 20 MW arrives in real time while actual load rises to 130 MW. The schedule is settled against the actual outcome.",
-      challenge: "Challenge: submit a 120 MW day-ahead schedule, then measure the real-time balancing exposure and demand value.",
+      defaultDispatch: { wind: 25, gas: 80, peaker: 15 },
+      description: "Wind and load forecasts have multiple real-time outcomes. Choose a day-ahead schedule that hedges uncovered real-time energy at the lowest expected total cost.",
+      hedgeScenarios: [{ name: "Calm wind", probability: 0.6, windAvailable: 20, demand: 130 }, { name: "Normal wind", probability: 0.4, windAvailable: 40, demand: 130 }],
+      hedgeOffer: 120,
+      realTimeOffer: 200,
       resources: [
         { id: "wind", name: "Wind forecast", capacity: 40, offer: 0, className: "wind", actualCapacity: 20 },
         { id: "gas", name: "Gas unit", capacity: 80, offer: 30, className: "gas", actualCapacity: 80 },
-        { id: "peaker", name: "Real-time peaker", capacity: 50, offer: 95, className: "peaker", actualCapacity: 50 }
+        { id: "peaker", name: "Hedge peaker", capacity: 50, offer: 95, className: "peaker", actualCapacity: 50, startupCost: 400 }
       ],
-      expectedAwards: { wind: 40, gas: 80, peaker: 0 }
+      expectedAwards: { wind: 25, gas: 80, peaker: 15 }
     },
     {
       id: 6,
@@ -1328,7 +1330,7 @@
   function dayAheadControlConfig(level, resource) {
     if (["commitment", "commitmentReserve", "integrated"].includes(level.controlMode)) return { max: 1, step: 1, fallback: 0, label: "Commit unit", suffix: "committed" };
     if (level.controlMode === "reserve") return { max: Number(resource.reserveCapacity) || 0, step: 1, fallback: 0, label: "Reserve target", suffix: "MW reserve" };
-    if (["dispatch", "congestion", "forecast"].includes(level.controlMode)) return { max: resource.capacity, step: 1, fallback: 0, label: level.controlMode === "forecast" ? "Day-ahead dispatch" : "Dispatch target", suffix: "MW dispatch" };
+    if (["dispatch", "congestion", "forecast", "forecastHedge"].includes(level.controlMode)) return { max: resource.capacity, step: 1, fallback: 0, label: ["forecast", "forecastHedge"].includes(level.controlMode) ? "Day-ahead dispatch" : "Dispatch target", suffix: "MW dispatch" };
     return { max: resource.capacity, step: 1, fallback: 0, label: "Available capacity", suffix: "MW available" };
   }
 
@@ -1735,6 +1737,46 @@
     return { awards, remaining, overage, delivered, realTimeAwards, realTimeImbalance, realTimeShortfall, dayAheadCost, realTimeCost, totalCost: dayAheadCost + realTimeCost, feasible: remaining <= 0.01 && overage <= 0.01, lmp: marginal?.offer ?? null };
   }
 
+  function evaluateForecastHedge(level, values) {
+    const awards = Object.fromEntries(level.resources.map((resource) => [resource.id, clippedValue(values[resource.id], 0, resource.capacity)]));
+    const totalDispatch = Object.values(awards).reduce((sum, value) => sum + value, 0);
+    const remaining = Math.max(0, level.demand - totalDispatch);
+    const overage = Math.max(0, totalDispatch - level.demand);
+    const dayAheadCost = level.resources.reduce((sum, resource) => sum + dayAheadCurveCost(resource, awards[resource.id]), 0);
+    const peakerAward = awards.peaker || 0;
+    const scenarioResults = (level.hedgeScenarios || []).map((scenario) => {
+      const delivered = level.resources.reduce((sum, resource) => {
+        const available = resource.id === "wind" ? scenario.windAvailable : Number(resource.actualCapacity ?? resource.capacity);
+        return sum + Math.min(awards[resource.id], available);
+      }, 0);
+      const shortfall = Math.max(0, Number(scenario.demand) - delivered);
+      const hedged = Math.min(shortfall, peakerAward);
+      const unhedged = Math.max(0, shortfall - hedged);
+      const startup = unhedged > 0 && peakerAward <= 0 ? Number(level.resources.find((resource) => resource.id === "peaker")?.startupCost) || 0 : 0;
+      const balancingCost = hedged * (Number(level.hedgeOffer) || 0) + unhedged * (Number(level.realTimeOffer) || 0) + startup;
+      return { name: scenario.name, probability: scenario.probability, delivered, shortfall, hedged, unhedged, balancingCost };
+    });
+    const expectedBalancingCost = scenarioResults.reduce((sum, scenario) => sum + scenario.probability * scenario.balancingCost, 0);
+    const expectedTotalCost = dayAheadCost + expectedBalancingCost;
+    const marginal = [...level.resources].filter((resource) => awards[resource.id] > 0).sort((a, b) => dayAheadCurvePrice(a, awards[a.id]) - dayAheadCurvePrice(b, awards[b.id])).at(-1);
+    return { awards, remaining, overage, scenarioResults, dayAheadCost, expectedBalancingCost, expectedTotalCost, totalCost: expectedTotalCost, feasible: remaining <= 0.01 && overage <= 0.01, lmp: marginal ? dayAheadCurvePrice(marginal, awards[marginal.id]) : null };
+  }
+
+  function solveOptimalForecastHedge(level) {
+    let best = null;
+    const resources = level.resources;
+    for (let wind = 0; wind <= resources[0].capacity; wind += 1) {
+      for (let gas = 0; gas <= resources[1].capacity; gas += 1) {
+        const peaker = level.demand - wind - gas;
+        if (peaker < 0 || peaker > resources[2].capacity) continue;
+        const result = evaluateForecastHedge(level, { wind, gas, peaker });
+        if (!result.feasible) continue;
+        if (!best || result.expectedTotalCost < best.expectedTotalCost - 0.01) best = result;
+      }
+    }
+    return best;
+  }
+
   function clearDayAhead(level, values) {
     if (["dispatch", "demandCurve"].includes(level.controlMode)) {
       const awards = Object.fromEntries(level.resources.map((resource) => [resource.id, Math.max(0, Math.min(resource.capacity, Number(values[resource.id]) || 0))]));
@@ -1749,6 +1791,7 @@
     if (level.controlMode === "commitment") return evaluateCommitment(level, values);
     if (level.controlMode === "reserve") return evaluateReserve(level, values);
     if (["commitmentReserve", "integrated"].includes(level.controlMode)) return evaluateCommitmentReserve(level, values);
+    if (level.controlMode === "forecastHedge") return evaluateForecastHedge(level, values);
     if (level.controlMode === "forecast") return evaluateForecast(level, values);
     const awards = {};
     let remaining = level.demand;
@@ -1766,10 +1809,10 @@
   function validateDayAheadLevels() {
     const errors = [];
     dayAheadLevels.forEach((level) => {
-      const defaults = ["dispatch", "demandCurve", "forecast"].includes(level.controlMode) ? (level.controlMode === "forecast" ? level.defaultDispatch : level.controlMode === "demandCurve" ? level.defaultDispatch : level.expectedAwards) : ["congestion", "congestionDemand"].includes(level.controlMode) ? level.defaultDispatch : ["commitment", "reserve"].includes(level.controlMode) ? (level.controlMode === "commitment" ? level.defaultCommitment : level.defaultReserve) : ["commitmentReserve", "integrated"].includes(level.controlMode) ? Object.fromEntries(level.resources.map((resource) => [resource.id, { commitment: level.defaultCommitment[resource.id], reserve: level.defaultReserve[resource.id], dispatch: level.defaultDispatch?.[resource.id] ?? 0 }])) : Object.fromEntries(level.resources.map((resource) => [resource.id, resource.capacity]));
+      const defaults = ["dispatch", "demandCurve", "forecast", "forecastHedge"].includes(level.controlMode) ? (level.controlMode === "forecast" || level.controlMode === "forecastHedge" ? level.defaultDispatch : level.controlMode === "demandCurve" ? level.defaultDispatch : level.expectedAwards) : ["congestion", "congestionDemand"].includes(level.controlMode) ? level.defaultDispatch : ["commitment", "reserve"].includes(level.controlMode) ? (level.controlMode === "commitment" ? level.defaultCommitment : level.defaultReserve) : ["commitmentReserve", "integrated"].includes(level.controlMode) ? Object.fromEntries(level.resources.map((resource) => [resource.id, { commitment: level.defaultCommitment[resource.id], reserve: level.defaultReserve[resource.id], dispatch: level.defaultDispatch?.[resource.id] ?? 0 }])) : Object.fromEntries(level.resources.map((resource) => [resource.id, resource.capacity]));
       const result = clearDayAhead(level, defaults);
       if (!result.feasible || result.remaining > 0 || result.reserveShortfall > 0) errors.push(`${level.title} cannot serve its demand.`);
-      const optimal = ["dispatch", "demandCurve"].includes(level.controlMode) ? solveDayAheadDispatch(level) : ["commitment"].includes(level.controlMode) ? solveOptimalCommitment(level) : ["reserve"].includes(level.controlMode) ? solveOptimalReserve(level) : ["commitmentReserve", "integrated"].includes(level.controlMode) ? solveOptimalCommitmentReserve(level) : null;
+      const optimal = ["dispatch", "demandCurve"].includes(level.controlMode) ? solveDayAheadDispatch(level) : level.controlMode === "forecastHedge" ? solveOptimalForecastHedge(level) : ["commitment"].includes(level.controlMode) ? solveOptimalCommitment(level) : ["reserve"].includes(level.controlMode) ? solveOptimalReserve(level) : ["commitmentReserve", "integrated"].includes(level.controlMode) ? solveOptimalCommitmentReserve(level) : null;
       level.resources.forEach((resource) => {
         const expected = optimal ? (level.controlMode === "reserve" || ["commitmentReserve", "integrated"].includes(level.controlMode) ? (level.controlMode === "reserve" ? optimal.reserveAwards[resource.id] : optimal.awards[resource.id]) : optimal.awards[resource.id]) : level.expectedAwards[resource.id];
         if (Math.abs(result.awards[resource.id] - expected) > 0.01 || Math.abs(level.expectedAwards[resource.id] - expected) > 0.01) errors.push(`${level.title} has an incorrect ${resource.name} award.`);
@@ -1815,6 +1858,15 @@
       renderDayAheadResult(`<strong>Reserve co-optimization</strong><span>Energy LMP: $${state.dayAheadResult.lmp}/MWh</span><div class="day-ahead-result-grid">${awardRows}${energyRows}<span>Total cost</span><span>$${totalCost.toFixed(0)}</span></div>`, "");
       return;
     }
+    if (level.controlMode === "forecastHedge") {
+      if (state.dayAheadResult.overage > 0 || state.dayAheadResult.remaining > 0) {
+        renderDayAheadResult(`<strong>Invalid day-ahead schedule</strong><span>Dispatch must equal the ${level.demand} MW forecast exactly.</span><div class="day-ahead-result-grid">${awardRows}</div>`, "is-error");
+        return;
+      }
+      const scenarioRows = state.dayAheadResult.scenarioResults.map((scenario) => `<span>${scenario.name} (${Math.round(scenario.probability * 100)}%)</span><span>${scenario.shortfall.toFixed(0)} MW shortfall · ${scenario.hedged.toFixed(0)} MW hedged</span>`).join("");
+      renderDayAheadResult(`<strong>Expected-value hedge</strong><span>Expected balancing cost includes the premium for uncovered real-time energy.</span><div class="day-ahead-result-grid">${awardRows}${scenarioRows}<span>Day-ahead cost</span><span>$${state.dayAheadResult.dayAheadCost.toFixed(0)}</span><span>Expected real-time cost</span><span>$${state.dayAheadResult.expectedBalancingCost.toFixed(0)}</span><span>Expected total cost</span><span>$${state.dayAheadResult.expectedTotalCost.toFixed(0)}</span></div>`, "");
+      return;
+    }
     if (level.controlMode === "forecast") {
       if (state.dayAheadResult.overage > 0 || state.dayAheadResult.remaining > 0) {
         renderDayAheadResult(`<strong>Invalid day-ahead schedule</strong><span>Dispatch must equal the ${level.demand} MW forecast exactly.</span><div class="day-ahead-result-grid">${awardRows}</div>`, "is-error");
@@ -1857,7 +1909,7 @@
       renderDayAheadResult(["dispatch", "demandCurve", "congestionDemand"].includes(level.controlMode) ? "Try again: match the load and network constraints before checking the schedule." : "Try again: increase the available MW until the forecast load is fully served.", "is-error");
       return;
     }
-    const optimal = ["dispatch", "demandCurve"].includes(level.controlMode) ? solveDayAheadDispatch(level) : ["congestion", "congestionDemand"].includes(level.controlMode) ? solveCongestion(level, level.defaultDispatch) : level.controlMode === "commitment" ? solveOptimalCommitment(level) : level.controlMode === "reserve" ? solveOptimalReserve(level) : ["commitmentReserve", "integrated"].includes(level.controlMode) ? solveOptimalCommitmentReserve(level) : null;
+    const optimal = ["dispatch", "demandCurve"].includes(level.controlMode) ? solveDayAheadDispatch(level) : level.controlMode === "forecastHedge" ? solveOptimalForecastHedge(level) : ["congestion", "congestionDemand"].includes(level.controlMode) ? solveCongestion(level, level.defaultDispatch) : level.controlMode === "commitment" ? solveOptimalCommitment(level) : level.controlMode === "reserve" ? solveOptimalReserve(level) : ["commitmentReserve", "integrated"].includes(level.controlMode) ? solveOptimalCommitmentReserve(level) : null;
     const expectedAwards = optimal ? (level.controlMode === "reserve" || ["commitmentReserve", "integrated"].includes(level.controlMode) ? optimal.awards : optimal.awards) : level.expectedAwards;
     const awardsMatch = level.resources.every((resource) => Math.abs(state.dayAheadResult.awards[resource.id] - expectedAwards[resource.id]) <= 0.01);
     const congestionMatch = !["congestion", "congestionDemand", "integrated"].includes(level.controlMode) || (Math.abs(state.dayAheadResult.flow - level.expectedFlow) <= 0.01 && state.dayAheadResult.nodeLmps.west === level.expectedNodeLmp.west && state.dayAheadResult.nodeLmps.east === level.expectedNodeLmp.east);
@@ -1869,7 +1921,9 @@
     state.dayAheadStatuses.set(level.id, status);
     saveProgress();
     renderDayAheadNavigation();
-    renderDayAheadResult(perfect ? "<strong>Perfect schedule</strong><span>The marginal accepted offer is the DAM LMP.</span>" : "<strong>Valid schedule, but not optimal</strong><span>The load is served, but the awards differ from the least-cost schedule.</span>", perfect ? "is-correct" : "is-close");
+    const successMessage = level.controlMode === "forecastHedge" ? "<strong>Perfect hedge</strong><span>This schedule minimizes expected day-ahead plus real-time balancing cost.</span>" : "<strong>Perfect schedule</strong><span>The marginal accepted offer is the DAM LMP.</span>";
+    const partialMessage = level.controlMode === "forecastHedge" ? "<strong>Valid hedge, but not optimal</strong><span>The schedule serves the forecast, but its expected balancing cost is not minimized.</span>" : "<strong>Valid schedule, but not optimal</strong><span>The load is served, but the awards differ from the least-cost schedule.</span>";
+    renderDayAheadResult(perfect ? successMessage : partialMessage, perfect ? "is-correct" : "is-close");
   }
 
   function renderDayAheadNavigation() {
@@ -1939,7 +1993,7 @@
       state.dayAheadOffers[level.id] = { ...level.defaultCommitment };
     } else if (level.controlMode === "reserve") {
       state.dayAheadOffers[level.id] = { ...level.defaultReserve };
-    } else if (["dispatch", "congestion", "forecast"].includes(level.controlMode)) {
+    } else if (["dispatch", "congestion", "forecast", "forecastHedge"].includes(level.controlMode)) {
       const dispatchDefaults = level.defaultDispatch && Object.values(level.defaultDispatch).some((value) => Number(value) > 0) ? level.defaultDispatch : level.expectedAwards;
       state.dayAheadOffers[level.id] = { ...dispatchDefaults };
     } else {
