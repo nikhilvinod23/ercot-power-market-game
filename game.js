@@ -510,6 +510,87 @@
         { id: "peaker", name: "Peaker plant", capacity: 30, offer: 80, className: "peaker" }
       ],
       expectedAwards: { wind: 25, gas: 25, peaker: 20 }
+    },
+    {
+      id: 1,
+      title: "Level 1: More suppliers",
+      theme: "Offer stacking",
+      demand: 90,
+      description: "Five resources submit fixed-price offers into the same unconstrained bus. The market accepts the cheapest offers first.",
+      challenge: "Challenge: keep enough low-cost capacity available so only 5 MW comes from the peaker.",
+      resources: [
+        { id: "wind", name: "West wind", capacity: 20, offer: 0, className: "wind" },
+        { id: "solar", name: "Solar field", capacity: 20, offer: 8, className: "solar" },
+        { id: "gas", name: "Gas plant", capacity: 30, offer: 28, className: "gas" },
+        { id: "hydro", name: "Hydro unit", capacity: 15, offer: 35, className: "hydro" },
+        { id: "peaker", name: "Peaker plant", capacity: 30, offer: 75, className: "peaker" }
+      ],
+      expectedAwards: { wind: 20, solar: 20, gas: 30, hydro: 15, peaker: 5 }
+    },
+    {
+      id: 2,
+      title: "Level 2: Supply bands",
+      theme: "Multiple offer bands",
+      demand: 105,
+      description: "A larger supply stack includes hydro, a battery, and a peaker. Each available-capacity slider represents one submitted offer band.",
+      challenge: "Challenge: preserve the low-cost bands so the battery, rather than the peaker, sets the marginal DAM LMP.",
+      resources: [
+        { id: "wind", name: "Wind farm", capacity: 30, offer: 0, className: "wind" },
+        { id: "solar", name: "Solar field", capacity: 20, offer: 6, className: "solar" },
+        { id: "hydro", name: "Hydro unit", capacity: 15, offer: 12, className: "hydro" },
+        { id: "gas", name: "Gas plant", capacity: 25, offer: 30, className: "gas" },
+        { id: "battery", name: "East battery", capacity: 20, offer: 45, className: "battery" },
+        { id: "peaker", name: "Peaker plant", capacity: 25, offer: 90, className: "peaker" }
+      ],
+      expectedAwards: { wind: 30, solar: 20, hydro: 15, gas: 25, battery: 15, peaker: 0 }
+    },
+    {
+      id: 3,
+      title: "Level 3: Flexible margin",
+      theme: "Marginal capacity",
+      demand: 120,
+      description: "Flexible gas, a combined-cycle unit, storage, and a peaker compete to cover a high-load hour.",
+      challenge: "Challenge: leave enough flexible capacity available to serve the final 5 MW without a shortfall.",
+      resources: [
+        { id: "wind", name: "West wind", capacity: 25, offer: 0, className: "wind" },
+        { id: "gas", name: "Flexible gas", capacity: 30, offer: 24, className: "gas" },
+        { id: "cycle", name: "Combined-cycle unit", capacity: 40, offer: 32, className: "cycle" },
+        { id: "battery", name: "Battery", capacity: 20, offer: 55, className: "battery" },
+        { id: "peaker", name: "Peaker plant", capacity: 35, offer: 110, className: "peaker" }
+      ],
+      expectedAwards: { wind: 25, gas: 30, cycle: 40, battery: 20, peaker: 5 }
+    },
+    {
+      id: 4,
+      title: "Level 4: Reserve headroom",
+      theme: "Tight supply",
+      demand: 130,
+      description: "The forecast is close to total available supply. Withholding too much capacity creates an infeasible day-ahead schedule.",
+      challenge: "Challenge: maintain enough headroom for the full 130 MW forecast while minimizing the expensive peaker award.",
+      resources: [
+        { id: "wind", name: "Wind farm", capacity: 35, offer: 0, className: "wind" },
+        { id: "solar", name: "Solar field", capacity: 25, offer: 5, className: "solar" },
+        { id: "gas", name: "Central gas", capacity: 35, offer: 25, className: "gas" },
+        { id: "hydro", name: "Hydro unit", capacity: 20, offer: 40, className: "hydro" },
+        { id: "peaker", name: "East peaker", capacity: 30, offer: 85, className: "peaker" }
+      ],
+      expectedAwards: { wind: 35, solar: 25, gas: 35, hydro: 20, peaker: 15 }
+    },
+    {
+      id: 5,
+      title: "Level 5: Forecast schedule",
+      theme: "Day-ahead stress test",
+      demand: 145,
+      description: "The final single-hour tutorial uses a large forecast and five offer bands. The day-ahead schedule must serve every MW.",
+      challenge: "Challenge: preserve the full renewable and flexible supply stack so the $95/MWh peaker only supplies the final 15 MW.",
+      resources: [
+        { id: "wind", name: "West wind", capacity: 40, offer: 0, className: "wind" },
+        { id: "solar", name: "North solar", capacity: 30, offer: 4, className: "solar" },
+        { id: "gas", name: "South gas", capacity: 35, offer: 28, className: "gas" },
+        { id: "battery", name: "East battery", capacity: 25, offer: 48, className: "battery" },
+        { id: "peaker", name: "East peaker", capacity: 40, offer: 95, className: "peaker" }
+      ],
+      expectedAwards: { wind: 40, solar: 30, gas: 35, battery: 25, peaker: 15 }
     }
   ];
 
@@ -1144,9 +1225,7 @@
     els["day-ahead-result"].innerHTML = message;
   }
 
-  function runDayAheadMarket() {
-    const level = getDayAheadLevel();
-    const values = dayAheadOfferValues(level);
+  function clearDayAhead(level, values) {
     const awards = {};
     let remaining = level.demand;
     let totalCost = 0;
@@ -1157,7 +1236,28 @@
       totalCost += award * resource.offer;
     });
     const marginal = remaining <= 0 ? [...level.resources].sort((a, b) => a.offer - b.offer).filter((resource) => awards[resource.id] > 0).at(-1) : null;
-    state.dayAheadResult = { awards, remaining, totalCost, lmp: marginal?.offer ?? null };
+    return { awards, remaining, totalCost, lmp: marginal?.offer ?? null };
+  }
+
+  function validateDayAheadLevels() {
+    const errors = [];
+    dayAheadLevels.forEach((level) => {
+      const result = clearDayAhead(level, Object.fromEntries(level.resources.map((resource) => [resource.id, resource.capacity])));
+      if (result.remaining > 0) errors.push(`${level.title} cannot serve its demand.`);
+      level.resources.forEach((resource) => {
+        if (Math.abs(result.awards[resource.id] - level.expectedAwards[resource.id]) > 0.01) errors.push(`${level.title} has an incorrect ${resource.name} award.`);
+      });
+      if (!Number.isFinite(result.lmp)) errors.push(`${level.title} has no marginal price.`);
+    });
+    if (errors.length) console.warn(`Day-ahead level validation failed: ${errors.join(" ")}`);
+    return errors;
+  }
+
+  function runDayAheadMarket() {
+    const level = getDayAheadLevel();
+    const values = dayAheadOfferValues(level);
+    state.dayAheadResult = clearDayAhead(level, values);
+    const { awards, remaining, totalCost } = state.dayAheadResult;
     const awardRows = level.resources.map((resource) => `<span>${resource.name}</span><span>${awards[resource.id].toFixed(0)} MW @ $${resource.offer}</span>`).join("");
     if (remaining > 0) {
       renderDayAheadResult(`<strong>Shortfall: ${remaining.toFixed(0)} MW</strong><span>There is not enough offered capacity to serve the forecast load.</span><div class="day-ahead-result-grid">${awardRows}</div>`, "is-error");
@@ -1224,6 +1324,8 @@
     saveProgress();
     renderDayAheadSelect();
   }
+
+  validateDayAheadLevels();
 
   function getConstructionLevel(id = state.constructionLevelId) {
     return constructionLevels.find((level) => level.id === id) || constructionLevels[0];

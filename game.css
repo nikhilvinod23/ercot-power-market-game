@@ -91,7 +91,11 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--blue); outl
 .day-ahead-stack-track { display: flex; height: 28px; overflow: hidden; background: var(--input-bg); }
 .day-ahead-stack-segment { display: grid; place-items: center; min-width: 2px; color: var(--white); font-size: 0.68rem; font-weight: 700; transition: width 180ms ease; }
 .day-ahead-stack-segment.wind { background: var(--blue); }
+.day-ahead-stack-segment.solar { background: #ffcc00; color: #111111; }
 .day-ahead-stack-segment.gas { background: var(--purple); }
+.day-ahead-stack-segment.hydro { background: #35a7ff; }
+.day-ahead-stack-segment.battery { background: #5ac8fa; color: #111111; }
+.day-ahead-stack-segment.cycle { background: #5856d6; }
 .day-ahead-stack-segment.peaker { background: var(--red); }
 .day-ahead-stack-value { color: var(--ink); font-weight: 700; text-align: right; }
 .day-ahead-stack-axis { display: flex; justify-content: space-between; margin: 3px 0 15px 94px; color: var(--muted); font-size: 0.68rem; }
