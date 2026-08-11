@@ -1285,6 +1285,13 @@
     renderDayAheadResult(perfect ? "<strong>Perfect schedule</strong><span>The marginal accepted offer is the DAM LMP.</span>" : "<strong>Valid schedule, but not optimal</strong><span>The load is served, but the awards differ from the least-cost schedule.</span>", perfect ? "is-correct" : "is-close");
   }
 
+  function renderDayAheadNavigation() {
+    const previous = dayAheadLevels.find((candidate) => candidate.id === state.dayAheadLevelId - 1);
+    const next = dayAheadLevels.find((candidate) => candidate.id === state.dayAheadLevelId + 1);
+    els["day-ahead-prev-button"].disabled = !previous;
+    els["day-ahead-next-button"].disabled = !next;
+  }
+
   function openDayAheadLevel(id = 0) {
     const level = getDayAheadLevel(id);
     state.screen = "day-ahead-level";
@@ -1303,8 +1310,7 @@
     renderDayAheadOffers(level);
     renderDayAheadStack(level);
     renderDayAheadResult();
-    els["day-ahead-prev-button"].disabled = true;
-    els["day-ahead-next-button"].disabled = true;
+    renderDayAheadNavigation();
   }
 
   function resetDayAheadLevel() {
@@ -2311,6 +2317,14 @@
     els["day-ahead-full-reset-button"].addEventListener("click", resetDayAheadProgress);
     els["day-ahead-back-button"].addEventListener("click", renderDayAheadSelect);
     els["day-ahead-reset-button"].addEventListener("click", resetDayAheadLevel);
+    els["day-ahead-prev-button"].addEventListener("click", () => {
+      const previous = dayAheadLevels.find((level) => level.id === state.dayAheadLevelId - 1);
+      if (previous) openDayAheadLevel(previous.id);
+    });
+    els["day-ahead-next-button"].addEventListener("click", () => {
+      const next = dayAheadLevels.find((level) => level.id === state.dayAheadLevelId + 1);
+      if (next) openDayAheadLevel(next.id);
+    });
     els["day-ahead-run-button"].addEventListener("click", runDayAheadMarket);
     els["day-ahead-check-button"].addEventListener("click", checkDayAheadSchedule);
     els["day-ahead-offers"].addEventListener("input", (event) => {
