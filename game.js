@@ -496,6 +496,23 @@
     }
   ];
 
+  const dayAheadLevels = [
+    {
+      id: 0,
+      title: "Level 0: Single-hour clearing",
+      theme: "Merit order",
+      demand: 70,
+      description: "Clear one operating hour on a single unconstrained bus. The fixed offer prices are stacked from cheapest to most expensive.",
+      challenge: "Challenge: make enough capacity available to serve the forecast, then identify the marginal accepted offer.",
+      resources: [
+        { id: "wind", name: "Wind farm", capacity: 25, offer: 10, className: "wind" },
+        { id: "gas", name: "Gas plant", capacity: 25, offer: 35, className: "gas" },
+        { id: "peaker", name: "Peaker plant", capacity: 30, offer: 80, className: "peaker" }
+      ],
+      expectedAwards: { wind: 25, gas: 25, peaker: 20 }
+    }
+  ];
+
   function numericCapacity(value) {
     if (value === Infinity || value === "∞") return Infinity;
     const text = String(value ?? "").trim().toLowerCase();
@@ -937,13 +954,17 @@
     constructionStatuses: new Map(),
     constructionDrafts: new Map(),
     construction: { nodes: [], lines: [], selected: null, checked: false, revealed: false, dragging: null },
+    dayAheadLevelId: null,
+    dayAheadStatuses: new Map(),
+    dayAheadOffers: {},
+    dayAheadResult: null,
     theme: localStorage.getItem(THEME_KEY) === "night" ? "night" : "day"
   };
   const els = {};
 
   function cacheElements() {
     [
-      "mode-select-screen", "lmp-mode-button", "network-mode-button", "mode-back-button", "construction-select-screen", "construction-mode-back-button", "construction-full-reset-button", "construction-level-circles", "construction-level-screen", "construction-back-button", "construction-reset-button", "construction-level-title", "construction-level-description", "construction-piece-tray", "construction-map", "construction-lines", "construction-nodes", "construction-inspector", "construction-check-button", "construction-reveal-button", "construction-feedback", "construction-prev-button", "construction-next-button", "level-select-screen", "level-screen", "level-circles", "level-select-message",
+      "mode-select-screen", "lmp-mode-button", "network-mode-button", "day-ahead-mode-button", "mode-back-button", "day-ahead-select-screen", "day-ahead-mode-back-button", "day-ahead-full-reset-button", "day-ahead-level-circles", "day-ahead-level-screen", "day-ahead-back-button", "day-ahead-reset-button", "day-ahead-level-title", "day-ahead-level-description", "day-ahead-demand", "day-ahead-offers", "day-ahead-stack", "day-ahead-stack-max", "day-ahead-run-button", "day-ahead-check-button", "day-ahead-result", "day-ahead-prev-button", "day-ahead-next-button", "construction-select-screen", "construction-mode-back-button", "construction-full-reset-button", "construction-level-circles", "construction-level-screen", "construction-back-button", "construction-reset-button", "construction-level-title", "construction-level-description", "construction-piece-tray", "construction-map", "construction-lines", "construction-nodes", "construction-inspector", "construction-check-button", "construction-reveal-button", "construction-feedback", "construction-prev-button", "construction-next-button", "level-select-screen", "level-screen", "level-circles", "level-select-message",
       "back-button", "reset-level-button", "level-page-title", "map-connections", "map-resources",
       "map-buses", "map-loads", "network-map", "map-title", "map-description", "map-hover-popover",
       "solve-popover", "check-network-button", "network-feedback", "completion-panel", "completion-title",
@@ -988,10 +1009,15 @@
       state.constructionStatuses = new Map(constructionEntries.filter(([id, status]) => constructionLevels.some((level) => level.id === Number(id)) && status === "green").map(([id, status]) => [Number(id), status]));
       const drafts = saved && typeof saved === "object" && saved.constructionDrafts && typeof saved.constructionDrafts === "object" ? Object.entries(saved.constructionDrafts) : [];
       state.constructionDrafts = new Map(drafts.filter(([id]) => constructionLevels.some((level) => level.id === Number(id))).map(([id, draft]) => [Number(id), draft]));
+      const dayAheadEntries = saved && typeof saved === "object" ? Object.entries(saved.dayAheadStatuses || {}) : [];
+      state.dayAheadStatuses = new Map(dayAheadEntries.filter(([id, status]) => dayAheadLevels.some((level) => level.id === Number(id)) && ["yellow", "green"].includes(status)).map(([id, status]) => [Number(id), status]));
+      state.dayAheadOffers = saved && typeof saved === "object" && saved.dayAheadOffers && typeof saved.dayAheadOffers === "object" ? saved.dayAheadOffers : {};
     } catch {
       state.statuses = new Map();
       state.constructionStatuses = new Map();
       state.constructionDrafts = new Map();
+      state.dayAheadStatuses = new Map();
+      state.dayAheadOffers = {};
     }
   }
 
@@ -999,7 +1025,9 @@
     localStorage.setItem(PROGRESS_KEY, JSON.stringify({
       statuses: Object.fromEntries(state.statuses),
       constructionStatuses: Object.fromEntries(state.constructionStatuses),
-      constructionDrafts: Object.fromEntries(state.constructionDrafts)
+      constructionDrafts: Object.fromEntries(state.constructionDrafts),
+      dayAheadStatuses: Object.fromEntries(state.dayAheadStatuses),
+      dayAheadOffers: state.dayAheadOffers
     }));
   }
 
@@ -1018,6 +1046,8 @@
     state.screen = "select";
     state.launching = false;
     els["mode-select-screen"].hidden = true;
+    els["day-ahead-select-screen"].hidden = true;
+    els["day-ahead-level-screen"].hidden = true;
     els["construction-select-screen"].hidden = true;
     els["construction-level-screen"].hidden = true;
     els["level-select-screen"].hidden = false;
@@ -1048,10 +1078,151 @@
     state.screen = "modes";
     state.launching = false;
     els["mode-select-screen"].hidden = false;
+    els["day-ahead-select-screen"].hidden = true;
+    els["day-ahead-level-screen"].hidden = true;
     els["construction-select-screen"].hidden = true;
     els["construction-level-screen"].hidden = true;
     els["level-select-screen"].hidden = true;
     els["level-screen"].hidden = true;
+  }
+
+  function getDayAheadLevel(id = state.dayAheadLevelId) {
+    return dayAheadLevels.find((level) => level.id === id) || dayAheadLevels[0];
+  }
+
+  function dayAheadStatus(level) {
+    return state.dayAheadStatuses.get(level.id) || "red";
+  }
+
+  function renderDayAheadSelect() {
+    state.screen = "day-ahead-select";
+    state.launching = false;
+    els["mode-select-screen"].hidden = true;
+    els["level-select-screen"].hidden = true;
+    els["level-screen"].hidden = true;
+    els["construction-select-screen"].hidden = true;
+    els["construction-level-screen"].hidden = true;
+    els["day-ahead-level-screen"].hidden = true;
+    els["day-ahead-select-screen"].hidden = false;
+    const latest = Math.max(...dayAheadLevels.map((level) => level.id));
+    els["day-ahead-level-circles"].innerHTML = dayAheadLevels.map((level) => {
+      const status = dayAheadStatus(level);
+      const classes = ["level-circle", `status-${status}`, level.id === latest ? "is-latest" : ""].join(" ");
+      return `<button type="button" class="${classes}" data-day-ahead-level="${level.id}" aria-label="${level.title}">${level.id}</button>`;
+    }).join("");
+    els["day-ahead-level-circles"].querySelectorAll("[data-day-ahead-level]").forEach((button) => {
+      button.addEventListener("click", () => openDayAheadLevel(Number(button.dataset.dayAheadLevel)));
+    });
+  }
+
+  function dayAheadOfferValues(level) {
+    const saved = state.dayAheadOffers[level.id] && typeof state.dayAheadOffers[level.id] === "object" ? state.dayAheadOffers[level.id] : {};
+    return Object.fromEntries(level.resources.map((resource) => [resource.id, Number.isFinite(Number(saved[resource.id])) ? Math.max(0, Math.min(resource.capacity, Number(saved[resource.id]))) : resource.capacity]));
+  }
+
+  function renderDayAheadOffers(level) {
+    const values = dayAheadOfferValues(level);
+    els["day-ahead-offers"].innerHTML = level.resources.map((resource) => `<article class="day-ahead-offer">
+      <div class="day-ahead-offer-info"><strong>${resource.name}</strong><span>Offer price: $${resource.offer}/MWh</span><span>Maximum: ${resource.capacity} MW</span></div>
+      <div class="day-ahead-offer-control"><input type="range" min="0" max="${resource.capacity}" step="1" value="${values[resource.id]}" data-day-ahead-offer="${resource.id}" aria-label="Available capacity for ${resource.name}"><span class="day-ahead-offer-readout" data-day-ahead-readout="${resource.id}">${values[resource.id]} MW available</span></div>
+    </article>`).join("");
+  }
+
+  function renderDayAheadStack(level) {
+    const values = dayAheadOfferValues(level);
+    const totalCapacity = level.resources.reduce((sum, resource) => sum + resource.capacity, 0);
+    els["day-ahead-stack-max"].textContent = `${totalCapacity} MW offered`;
+    els["day-ahead-stack"].innerHTML = [...level.resources].sort((a, b) => a.offer - b.offer).map((resource) => {
+      const available = values[resource.id];
+      const width = totalCapacity ? Math.max(0, Math.min(100, (available / totalCapacity) * 100)) : 0;
+      return `<div class="day-ahead-stack-row"><span class="day-ahead-stack-label">${resource.name}</span><div class="day-ahead-stack-track"><span class="day-ahead-stack-segment ${resource.className}" style="width:${width}%">${available ? `${available} MW` : ""}</span></div><span class="day-ahead-stack-value">$${resource.offer}/MWh</span></div>`;
+    }).join("");
+  }
+
+  function renderDayAheadResult(message = "Run the market to calculate awards and the DAM LMP.", className = "") {
+    els["day-ahead-result"].className = `day-ahead-result ${className}`.trim();
+    els["day-ahead-result"].innerHTML = message;
+  }
+
+  function runDayAheadMarket() {
+    const level = getDayAheadLevel();
+    const values = dayAheadOfferValues(level);
+    const awards = {};
+    let remaining = level.demand;
+    let totalCost = 0;
+    [...level.resources].sort((a, b) => a.offer - b.offer).forEach((resource) => {
+      const award = Math.min(values[resource.id], Math.max(0, remaining));
+      awards[resource.id] = award;
+      remaining -= award;
+      totalCost += award * resource.offer;
+    });
+    const marginal = remaining <= 0 ? [...level.resources].sort((a, b) => a.offer - b.offer).filter((resource) => awards[resource.id] > 0).at(-1) : null;
+    state.dayAheadResult = { awards, remaining, totalCost, lmp: marginal?.offer ?? null };
+    const awardRows = level.resources.map((resource) => `<span>${resource.name}</span><span>${awards[resource.id].toFixed(0)} MW @ $${resource.offer}</span>`).join("");
+    if (remaining > 0) {
+      renderDayAheadResult(`<strong>Shortfall: ${remaining.toFixed(0)} MW</strong><span>There is not enough offered capacity to serve the forecast load.</span><div class="day-ahead-result-grid">${awardRows}</div>`, "is-error");
+      return;
+    }
+    renderDayAheadResult(`<strong>DAM LMP: $${state.dayAheadResult.lmp}/MWh</strong><span>All ${level.demand} MW are awarded at the least-cost available offers.</span><div class="day-ahead-result-grid">${awardRows}<span>Total energy cost</span><span>$${totalCost.toFixed(0)}</span></div>`, "");
+  }
+
+  function checkDayAheadSchedule() {
+    const level = getDayAheadLevel();
+    if (!state.dayAheadResult) {
+      renderDayAheadResult("Run the market before checking the schedule.", "is-error");
+      return;
+    }
+    if (state.dayAheadResult.remaining > 0) {
+      state.dayAheadStatuses.delete(level.id);
+      saveProgress();
+      renderDayAheadResult("Try again: increase the available MW until the forecast load is fully served.", "is-error");
+      return;
+    }
+    const perfect = level.resources.every((resource) => Math.abs(state.dayAheadResult.awards[resource.id] - level.expectedAwards[resource.id]) <= 0.01);
+    const status = perfect ? "green" : "yellow";
+    state.dayAheadStatuses.set(level.id, status);
+    saveProgress();
+    renderDayAheadResult(perfect ? "<strong>Perfect schedule</strong><span>The marginal accepted offer is the DAM LMP.</span>" : "<strong>Valid schedule, but not optimal</strong><span>The load is served, but the awards differ from the least-cost schedule.</span>", perfect ? "is-correct" : "is-close");
+  }
+
+  function openDayAheadLevel(id = 0) {
+    const level = getDayAheadLevel(id);
+    state.screen = "day-ahead-level";
+    state.dayAheadLevelId = level.id;
+    state.dayAheadResult = null;
+    els["mode-select-screen"].hidden = true;
+    els["day-ahead-select-screen"].hidden = true;
+    els["day-ahead-level-screen"].hidden = false;
+    els["construction-select-screen"].hidden = true;
+    els["construction-level-screen"].hidden = true;
+    els["level-select-screen"].hidden = true;
+    els["level-screen"].hidden = true;
+    els["day-ahead-level-title"].textContent = `${level.title}: ${level.theme}`;
+    els["day-ahead-level-description"].textContent = `${level.description} ${level.challenge}`;
+    els["day-ahead-demand"].textContent = `${level.demand} MW`;
+    renderDayAheadOffers(level);
+    renderDayAheadStack(level);
+    renderDayAheadResult();
+    els["day-ahead-prev-button"].disabled = true;
+    els["day-ahead-next-button"].disabled = true;
+  }
+
+  function resetDayAheadLevel() {
+    const level = getDayAheadLevel();
+    delete state.dayAheadOffers[level.id];
+    state.dayAheadResult = null;
+    state.dayAheadStatuses.delete(level.id);
+    saveProgress();
+    openDayAheadLevel(level.id);
+  }
+
+  function resetDayAheadProgress() {
+    state.dayAheadStatuses = new Map();
+    state.dayAheadOffers = {};
+    state.dayAheadLevelId = null;
+    state.dayAheadResult = null;
+    saveProgress();
+    renderDayAheadSelect();
   }
 
   function getConstructionLevel(id = state.constructionLevelId) {
@@ -1062,6 +1233,8 @@
     state.screen = "construction-select";
     state.launching = false;
     els["mode-select-screen"].hidden = true;
+    els["day-ahead-select-screen"].hidden = true;
+    els["day-ahead-level-screen"].hidden = true;
     els["level-select-screen"].hidden = true;
     els["level-screen"].hidden = true;
     els["construction-level-screen"].hidden = true;
@@ -1986,7 +2159,10 @@
     if (!window.confirm("Reset all level progress and start over?")) return;
     localStorage.removeItem(PROGRESS_KEY);
     state.statuses.clear();
+    state.dayAheadStatuses.clear();
+    state.dayAheadOffers = {};
     state.levelId = null;
+    state.dayAheadLevelId = null;
     state.answers = {};
     state.checked = false;
     state.revealed = false;
@@ -2026,8 +2202,29 @@
   function bindEvents() {
     els["lmp-mode-button"].addEventListener("click", renderLevelSelect);
     els["network-mode-button"].addEventListener("click", renderConstructionSelect);
+    els["day-ahead-mode-button"].addEventListener("click", renderDayAheadSelect);
     els["mode-back-button"].addEventListener("click", renderModeSelect);
     els["construction-mode-back-button"].addEventListener("click", renderModeSelect);
+    els["day-ahead-mode-back-button"].addEventListener("click", renderModeSelect);
+    els["day-ahead-full-reset-button"].addEventListener("click", resetDayAheadProgress);
+    els["day-ahead-back-button"].addEventListener("click", renderDayAheadSelect);
+    els["day-ahead-reset-button"].addEventListener("click", resetDayAheadLevel);
+    els["day-ahead-run-button"].addEventListener("click", runDayAheadMarket);
+    els["day-ahead-check-button"].addEventListener("click", checkDayAheadSchedule);
+    els["day-ahead-offers"].addEventListener("input", (event) => {
+      const input = event.target.closest("[data-day-ahead-offer]");
+      if (!input) return;
+      const level = getDayAheadLevel();
+      const id = input.dataset.dayAheadOffer;
+      if (!state.dayAheadOffers[level.id] || typeof state.dayAheadOffers[level.id] !== "object") state.dayAheadOffers[level.id] = {};
+      state.dayAheadOffers[level.id][id] = Number(input.value);
+      const readout = els["day-ahead-offers"].querySelector(`[data-day-ahead-readout="${id}"]`);
+      if (readout) readout.textContent = `${input.value} MW available`;
+      state.dayAheadResult = null;
+      renderDayAheadStack(level);
+      renderDayAheadResult();
+      saveProgress();
+    });
     els["construction-full-reset-button"].addEventListener("click", resetConstructionProgress);
     els["construction-back-button"].addEventListener("click", renderConstructionSelect);
     els["construction-reset-button"].addEventListener("click", resetConstructionLevel);

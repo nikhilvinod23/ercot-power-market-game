@@ -16,7 +16,52 @@
         <div class="mode-circles" aria-label="Game modes">
           <button type="button" class="mode-circle mode-lmp" id="lmp-mode-button">LMP Solver</button>
           <button type="button" class="mode-circle mode-congestion" id="network-mode-button">Network Construction</button>
-          <button type="button" class="mode-circle mode-day-ahead" disabled>Day-Ahead Market</button>
+          <button type="button" class="mode-circle mode-day-ahead" id="day-ahead-mode-button">Day-Ahead Market</button>
+        </div>
+      </section>
+
+      <section id="day-ahead-select-screen" class="home-screen" hidden aria-labelledby="day-ahead-select-title">
+        <h1 id="day-ahead-select-title">Day-Ahead Market</h1>
+        <button type="button" class="select-mode-button" id="day-ahead-mode-back-button">Game modes</button>
+        <button type="button" class="select-reset-button" id="day-ahead-full-reset-button">Reset all progress</button>
+        <div id="day-ahead-level-circles" class="level-circles" aria-label="Day-ahead market levels"></div>
+      </section>
+
+      <section id="day-ahead-level-screen" class="day-ahead-screen" hidden aria-labelledby="day-ahead-level-title">
+        <header class="level-toolbar">
+          <button type="button" class="toolbar-button" id="day-ahead-back-button" aria-label="Return to day-ahead levels">&#8592;</button>
+          <h2 id="day-ahead-level-title">Level 0: Single-hour clearing</h2>
+          <div class="toolbar-actions">
+            <button type="button" class="toolbar-button" id="day-ahead-reset-button" aria-label="Reset day-ahead level">&#8635;</button>
+          </div>
+        </header>
+        <p class="day-ahead-instruction"><strong>Rules:</strong> Set the available MW for each offer, then run the day-ahead market. The least-cost feasible schedule wins.</p>
+        <p id="day-ahead-level-description" class="day-ahead-level-description"></p>
+        <div class="day-ahead-summary">
+          <span>Operating hour: 1</span>
+          <strong>Forecast load: <span id="day-ahead-demand">70 MW</span></strong>
+          <span>One unconstrained bus</span>
+        </div>
+        <div class="day-ahead-layout">
+          <section class="day-ahead-panel" aria-labelledby="day-ahead-offer-title">
+            <h3 id="day-ahead-offer-title">Supply offers</h3>
+            <p class="day-ahead-panel-note">Offer prices are fixed for this tutorial. Adjust available capacity to see how withholding changes the clearing result.</p>
+            <div id="day-ahead-offers" class="day-ahead-offers"></div>
+          </section>
+          <section class="day-ahead-panel" aria-labelledby="day-ahead-stack-title">
+            <h3 id="day-ahead-stack-title">Market clearing stack</h3>
+            <div id="day-ahead-stack" class="day-ahead-stack"></div>
+            <div class="day-ahead-stack-axis"><span>0 MW</span><span id="day-ahead-stack-max">80 MW offered</span></div>
+            <div class="day-ahead-actions">
+              <button type="button" class="check-button" id="day-ahead-run-button">Run Day-Ahead Market</button>
+              <button type="button" class="reveal-button" id="day-ahead-check-button">Check Schedule</button>
+            </div>
+            <div id="day-ahead-result" class="day-ahead-result" role="status" aria-live="polite">Run the market to calculate awards and the DAM LMP.</div>
+          </section>
+        </div>
+        <div class="day-ahead-navigation" aria-label="Day-ahead level navigation">
+          <button type="button" class="construction-nav-button" id="day-ahead-prev-button" disabled>&#8592; Previous</button>
+          <button type="button" class="construction-nav-button" id="day-ahead-next-button" disabled>Next &#8594;</button>
         </div>
       </section>
 

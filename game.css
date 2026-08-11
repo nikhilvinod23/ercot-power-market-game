@@ -68,6 +68,43 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--blue); outl
 .mode-congestion { background: var(--purple); }
 .mode-day-ahead { background: var(--orange); }
 .mode-circle:disabled { opacity: 0.5; }
+.day-ahead-screen { padding-bottom: 40px; }
+.day-ahead-instruction { margin: 16px 0 7px; color: var(--muted); font-size: 0.9rem; text-align: center; }
+.day-ahead-level-description { max-width: 760px; margin: 0 auto 14px; color: var(--ink); font-size: 0.86rem; line-height: 1.4; text-align: center; }
+.day-ahead-summary { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px 28px; margin: 15px 0; color: var(--muted); font-size: 0.8rem; }
+.day-ahead-summary strong { color: var(--ink); }
+.day-ahead-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: stretch; }
+.day-ahead-panel { min-width: 0; padding: 16px; background: var(--surface); box-shadow: 0 8px 24px var(--shadow); }
+.day-ahead-panel h3 { margin: 0 0 6px; font-size: 1.05rem; }
+.day-ahead-panel-note { margin: 0 0 12px; color: var(--muted); font-size: 0.76rem; line-height: 1.4; }
+.day-ahead-offers { display: grid; gap: 10px; }
+.day-ahead-offer { display: grid; grid-template-columns: minmax(110px, 1fr) minmax(0, 1.3fr); gap: 10px; align-items: center; padding: 11px; background: var(--input-bg); }
+.day-ahead-offer-info { display: grid; gap: 3px; }
+.day-ahead-offer-info strong { font-size: 0.86rem; }
+.day-ahead-offer-info span { color: var(--muted); font-size: 0.74rem; }
+.day-ahead-offer-control { display: grid; gap: 3px; }
+.day-ahead-offer-control input { width: 100%; accent-color: var(--orange); }
+.day-ahead-offer-readout { color: var(--ink); font-size: 0.75rem; font-weight: 700; text-align: right; }
+.day-ahead-stack { display: grid; gap: 8px; min-height: 176px; align-content: center; padding: 10px 0; }
+.day-ahead-stack-row { display: grid; grid-template-columns: 86px minmax(0, 1fr) 65px; gap: 8px; align-items: center; font-size: 0.72rem; }
+.day-ahead-stack-label { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+.day-ahead-stack-track { display: flex; height: 28px; overflow: hidden; background: var(--input-bg); }
+.day-ahead-stack-segment { display: grid; place-items: center; min-width: 2px; color: var(--white); font-size: 0.68rem; font-weight: 700; transition: width 180ms ease; }
+.day-ahead-stack-segment.wind { background: var(--blue); }
+.day-ahead-stack-segment.gas { background: var(--purple); }
+.day-ahead-stack-segment.peaker { background: var(--red); }
+.day-ahead-stack-value { color: var(--ink); font-weight: 700; text-align: right; }
+.day-ahead-stack-axis { display: flex; justify-content: space-between; margin: 3px 0 15px 94px; color: var(--muted); font-size: 0.68rem; }
+.day-ahead-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.day-ahead-actions .check-button, .day-ahead-actions .reveal-button { padding: 10px 14px; font-size: 0.78rem; }
+.day-ahead-result { display: grid; gap: 5px; min-height: 116px; margin-top: 14px; padding: 12px; background: var(--input-bg); color: var(--ink); font-size: 0.78rem; line-height: 1.4; }
+.day-ahead-result strong { font-size: 1.1rem; }
+.day-ahead-result.is-correct { color: #16833a; }
+.day-ahead-result.is-close { color: #926900; }
+.day-ahead-result.is-error { color: var(--red); }
+.day-ahead-result-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px 12px; }
+.day-ahead-result-grid span:nth-child(even) { font-weight: 700; text-align: right; }
+.day-ahead-navigation { display: flex; justify-content: space-between; gap: 12px; margin-top: 18px; }
 .construction-screen { padding-bottom: 40px; }
 .construction-instruction { margin: 16px 0; color: var(--muted); font-size: 0.9rem; text-align: center; }
 .construction-level-description { max-width: 760px; margin: -8px auto 14px; color: var(--ink); font-size: 0.82rem; line-height: 1.4; text-align: center; }
@@ -117,6 +154,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--blue); outl
 .construction-inspector .construction-return { background: var(--blue); }
 .construction-inspector .construction-delete { background: var(--red); }
 @media (max-width: 760px) {
+  .day-ahead-layout { grid-template-columns: 1fr; }
   .construction-layout { grid-template-columns: 1fr; }
   .construction-palette { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .construction-palette h3, .construction-palette-note { grid-column: 1 / -1; }
