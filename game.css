@@ -97,6 +97,8 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--blue); outl
 .day-ahead-curve-line.peaker { stroke: var(--red); }
 .day-ahead-offer-control { display: grid; gap: 3px; }
 .day-ahead-offer-control input { width: 100%; accent-color: var(--orange); }
+.day-ahead-toggle { min-width: 62px; padding: 7px 10px; border: 0; background: var(--red); color: var(--white); font-size: 0.74rem; font-weight: 800; cursor: pointer; }
+.day-ahead-toggle.is-on { background: var(--green); }
 .day-ahead-offer-readout { color: var(--ink); font-size: 0.75rem; font-weight: 700; text-align: right; }
 .day-ahead-stack { display: grid; gap: 8px; min-height: 176px; align-content: center; padding: 10px 0; }
 .day-ahead-stack-row { display: grid; grid-template-columns: 86px minmax(0, 1fr) 65px; gap: 8px; align-items: center; font-size: 0.72rem; }

@@ -655,6 +655,7 @@
       reserveRequirement: 15,
       defaultCommitment: { wind: 1, gas: 1, hydro: 1, peaker: 0 },
       defaultReserve: { wind: 5, gas: 10, hydro: 0, peaker: 0 },
+      defaultDispatch: { wind: 35, gas: 50, hydro: 25, peaker: 0 },
       description: "Commitment decisions cover three hours, while reserve sliders hold headroom back from energy dispatch. Startup costs make the best commitment non-obvious.",
       challenge: "Challenge: commit enough capacity for the peak and place 15 MW of reserve without starting the peaker.",
       resources: [
@@ -679,6 +680,7 @@
       networkLabel: "15 MW (West → East)",
       defaultCommitment: { westWind: 1, westGas: 1, eastGas: 1, peaker: 0 },
       defaultReserve: { westWind: 5, westGas: 10, eastGas: 5, peaker: 0 },
+      defaultDispatch: { westWind: 35, westGas: 30, eastGas: 55, peaker: 0 },
       description: "The final tutorial combines a zonal transmission limit, a price-sensitive load, startup costs, and a reserve requirement.",
       challenge: "Challenge: keep the east load supplied, reserve 20 MW, and avoid starting the peaker while respecting the 15 MW interface.",
       resources: [
@@ -706,6 +708,7 @@
       networkLabel: "20 MW (West → East)",
       defaultCommitment: { westWind: 1, westGas: 1, eastSolar: 1, eastGas: 1, peaker: 0 },
       defaultReserve: { westWind: 5, westGas: 10, eastSolar: 5, eastGas: 5, peaker: 0 },
+      defaultDispatch: { westWind: 45, westGas: 30, eastSolar: 25, eastGas: 35, peaker: 0 },
       description: "A two-hour network schedule combines rising offer curves, zonal transmission, startup costs, commitment, and operating reserves.",
       resources: [
         { id: "westWind", name: "West wind", capacity: 50, offer: 0, className: "wind", zone: "west", startupCost: 0, reserveCapacity: 5, reserveOffer: 0, offerCurve: [{ mw: 0, price: 0 }, { mw: 50, price: 0 }] },
@@ -1172,7 +1175,7 @@
 
   function cacheElements() {
     [
-      "mode-select-screen", "lmp-mode-button", "network-mode-button", "day-ahead-mode-button", "mode-back-button", "day-ahead-select-screen", "day-ahead-mode-back-button", "day-ahead-full-reset-button", "day-ahead-level-circles", "day-ahead-level-message", "day-ahead-level-screen", "day-ahead-back-button", "day-ahead-reset-button", "day-ahead-level-title", "day-ahead-level-description", "day-ahead-hours-summary", "day-ahead-demand", "day-ahead-reserve-summary", "day-ahead-network-summary", "day-ahead-offers", "day-ahead-stack", "day-ahead-stack-max", "day-ahead-run-button", "day-ahead-check-button", "day-ahead-result", "day-ahead-prev-button", "day-ahead-next-button", "construction-select-screen", "construction-mode-back-button", "construction-full-reset-button", "construction-level-circles", "construction-level-screen", "construction-back-button", "construction-reset-button", "construction-level-title", "construction-level-description", "construction-piece-tray", "construction-map", "construction-lines", "construction-nodes", "construction-inspector", "construction-check-button", "construction-reveal-button", "construction-feedback", "construction-prev-button", "construction-next-button", "level-select-screen", "level-screen", "level-circles", "level-select-message",
+      "mode-select-screen", "lmp-mode-button", "network-mode-button", "day-ahead-mode-button", "mode-back-button", "day-ahead-select-screen", "day-ahead-mode-back-button", "day-ahead-full-reset-button", "day-ahead-level-circles", "day-ahead-level-message", "day-ahead-level-screen", "day-ahead-back-button", "day-ahead-reset-button", "day-ahead-level-title", "day-ahead-level-description", "day-ahead-hours-summary", "day-ahead-demand", "day-ahead-reserve-summary", "day-ahead-network-summary", "day-ahead-offers", "day-ahead-stack", "day-ahead-stack-max", "day-ahead-run-button", "day-ahead-check-button", "day-ahead-reveal-button", "day-ahead-result", "day-ahead-prev-button", "day-ahead-next-button", "construction-select-screen", "construction-mode-back-button", "construction-full-reset-button", "construction-level-circles", "construction-level-screen", "construction-back-button", "construction-reset-button", "construction-level-title", "construction-level-description", "construction-piece-tray", "construction-map", "construction-lines", "construction-nodes", "construction-inspector", "construction-check-button", "construction-reveal-button", "construction-feedback", "construction-prev-button", "construction-next-button", "level-select-screen", "level-screen", "level-circles", "level-select-message",
       "back-button", "reset-level-button", "level-page-title", "map-connections", "map-resources",
       "map-buses", "map-loads", "network-map", "map-title", "map-description", "map-hover-popover",
       "solve-popover", "check-network-button", "network-feedback", "completion-panel", "completion-title",
@@ -1368,7 +1371,8 @@
         const entry = saved[resource.id] && typeof saved[resource.id] === "object" ? saved[resource.id] : {};
         return [resource.id, {
           commitment: Number.isFinite(Number(entry.commitment)) ? Math.max(0, Math.min(1, Number(entry.commitment))) : 0,
-          reserve: Number.isFinite(Number(entry.reserve)) ? Math.max(0, Math.min(Number(resource.reserveCapacity) || 0, Number(entry.reserve))) : 0
+          reserve: Number.isFinite(Number(entry.reserve)) ? Math.max(0, Math.min(Number(resource.reserveCapacity) || 0, Number(entry.reserve))) : 0,
+          dispatch: Number.isFinite(Number(entry.dispatch)) ? Math.max(0, Math.min(resource.capacity, Number(entry.dispatch))) : 0
         }];
       }));
     }
@@ -1392,6 +1396,27 @@
     return `Curve: ${resource.offerCurve.map((point) => `${point.mw} MW @ $${point.price}`).join(" → ")}`;
   }
 
+  function upgradeCommitmentReserveControls(level, values) {
+    els["day-ahead-offers"].querySelectorAll(".day-ahead-offer").forEach((article, index) => {
+      const resource = level.resources[index];
+      const commitmentInput = article.querySelector('[data-day-ahead-kind="commitment"]');
+      if (!commitmentInput) return;
+      const commitmentButton = document.createElement("button");
+      commitmentButton.type = "button";
+      commitmentButton.className = `day-ahead-toggle ${values[resource.id].commitment ? "is-on" : ""}`;
+      commitmentButton.setAttribute("aria-pressed", values[resource.id].commitment ? "true" : "false");
+      commitmentButton.setAttribute("aria-label", `Toggle commitment for ${resource.name}`);
+      commitmentButton.dataset.dayAheadOffer = resource.id;
+      commitmentButton.dataset.dayAheadKind = "commitment";
+      commitmentButton.textContent = values[resource.id].commitment ? "ON" : "OFF";
+      commitmentInput.replaceWith(commitmentButton);
+      const reserveLabel = article.querySelector(`[for="day-ahead-reserve-${resource.id}"]`);
+      reserveLabel.insertAdjacentHTML("beforebegin", `<label class="day-ahead-control-label" for="day-ahead-dispatch-${resource.id}">Dispatch target</label><input id="day-ahead-dispatch-${resource.id}" type="range" min="0" max="${resource.capacity}" step="1" value="${values[resource.id].dispatch}" data-day-ahead-offer="${resource.id}" data-day-ahead-kind="dispatch" aria-label="Dispatch target for ${resource.name}"><span class="day-ahead-offer-readout" data-day-ahead-readout="${resource.id}-dispatch">${values[resource.id].dispatch} MW dispatch</span>`);
+      const info = article.querySelector(".day-ahead-offer-info");
+      if (info && !info.querySelector(".day-ahead-curve")) info.insertAdjacentHTML("beforeend", renderDayAheadCurve(resource));
+    });
+  }
+
   function renderDayAheadOffers(level) {
     const values = dayAheadOfferValues(level);
     if (["commitmentReserve", "integrated"].includes(level.controlMode)) {
@@ -1399,6 +1424,7 @@
         const value = values[resource.id];
         return `<article class="day-ahead-offer"><div class="day-ahead-offer-info"><strong>${resource.name}</strong><span>Energy capacity: ${resource.capacity} MW | Reserve capacity: ${resource.reserveCapacity} MW</span><span>${dayAheadCurveSummary(resource)} · Startup cost: $${resource.startupCost}/day</span></div><div class="day-ahead-offer-control"><label class="day-ahead-control-label" for="day-ahead-commit-${resource.id}">Commit unit</label><input id="day-ahead-commit-${resource.id}" type="range" min="0" max="1" step="1" value="${value.commitment}" data-day-ahead-offer="${resource.id}" data-day-ahead-kind="commitment" aria-label="Commit unit for ${resource.name}"><span class="day-ahead-offer-readout" data-day-ahead-readout="${resource.id}-commitment">${value.commitment ? "ON" : "OFF"}</span><label class="day-ahead-control-label" for="day-ahead-reserve-${resource.id}">Reserve target</label><input id="day-ahead-reserve-${resource.id}" type="range" min="0" max="${resource.reserveCapacity}" step="1" value="${value.reserve}" data-day-ahead-offer="${resource.id}" data-day-ahead-kind="reserve" aria-label="Reserve target for ${resource.name}"><span class="day-ahead-offer-readout" data-day-ahead-readout="${resource.id}-reserve">${value.reserve} MW reserve</span></div></article>`;
       }).join("");
+      upgradeCommitmentReserveControls(level, values);
       return;
     }
     els["day-ahead-offers"].innerHTML = level.resources.map((resource) => `<article class="day-ahead-offer">
@@ -1573,7 +1599,11 @@
     const reserveAwards = Object.fromEntries(level.resources.map((resource) => [resource.id, commitments[resource.id] ? clippedValue(values[resource.id]?.reserve, 0, Number(resource.reserveCapacity) || 0) : 0]));
     const reserveTotal = Object.values(reserveAwards).reduce((sum, value) => sum + value, 0);
     const reserveShortfall = Math.max(0, (Number(level.reserveRequirement) || 0) - reserveTotal);
-    const energyCapacity = Object.fromEntries(level.resources.map((resource) => [resource.id, commitments[resource.id] ? Math.max(0, resource.capacity - reserveAwards[resource.id]) : 0]));
+    const energyCapacity = Object.fromEntries(level.resources.map((resource) => {
+      const dispatchTarget = Number(values[resource.id]?.dispatch);
+      const dispatchLimit = Number.isFinite(dispatchTarget) ? Math.max(0, Math.min(resource.capacity, dispatchTarget)) : resource.capacity;
+      return [resource.id, commitments[resource.id] ? Math.max(0, Math.min(dispatchLimit, resource.capacity - reserveAwards[resource.id])) : 0];
+    }));
     const hours = level.hours || [{ id: 1, demand: level.demand }];
     const hourlyAwards = {};
     const hourlyFlows = {};
@@ -1731,7 +1761,7 @@
   function validateDayAheadLevels() {
     const errors = [];
     dayAheadLevels.forEach((level) => {
-      const defaults = ["dispatch", "demandCurve", "forecast"].includes(level.controlMode) ? (level.controlMode === "forecast" ? level.defaultDispatch : level.controlMode === "demandCurve" ? level.defaultDispatch : level.expectedAwards) : ["congestion", "congestionDemand"].includes(level.controlMode) ? level.defaultDispatch : ["commitment", "reserve"].includes(level.controlMode) ? (level.controlMode === "commitment" ? level.defaultCommitment : level.defaultReserve) : ["commitmentReserve", "integrated"].includes(level.controlMode) ? Object.fromEntries(level.resources.map((resource) => [resource.id, { commitment: level.defaultCommitment[resource.id], reserve: level.defaultReserve[resource.id] }])) : Object.fromEntries(level.resources.map((resource) => [resource.id, resource.capacity]));
+      const defaults = ["dispatch", "demandCurve", "forecast"].includes(level.controlMode) ? (level.controlMode === "forecast" ? level.defaultDispatch : level.controlMode === "demandCurve" ? level.defaultDispatch : level.expectedAwards) : ["congestion", "congestionDemand"].includes(level.controlMode) ? level.defaultDispatch : ["commitment", "reserve"].includes(level.controlMode) ? (level.controlMode === "commitment" ? level.defaultCommitment : level.defaultReserve) : ["commitmentReserve", "integrated"].includes(level.controlMode) ? Object.fromEntries(level.resources.map((resource) => [resource.id, { commitment: level.defaultCommitment[resource.id], reserve: level.defaultReserve[resource.id], dispatch: level.defaultDispatch?.[resource.id] ?? 0 }])) : Object.fromEntries(level.resources.map((resource) => [resource.id, resource.capacity]));
       const result = clearDayAhead(level, defaults);
       if (!result.feasible || result.remaining > 0 || result.reserveShortfall > 0) errors.push(`${level.title} cannot serve its demand.`);
       const optimal = ["dispatch", "demandCurve"].includes(level.controlMode) ? solveDayAheadDispatch(level) : ["commitment"].includes(level.controlMode) ? solveOptimalCommitment(level) : ["reserve"].includes(level.controlMode) ? solveOptimalReserve(level) : ["commitmentReserve", "integrated"].includes(level.controlMode) ? solveOptimalCommitmentReserve(level) : null;
@@ -1827,8 +1857,9 @@
     const awardsMatch = level.resources.every((resource) => Math.abs(state.dayAheadResult.awards[resource.id] - expectedAwards[resource.id]) <= 0.01);
     const congestionMatch = !["congestion", "congestionDemand", "integrated"].includes(level.controlMode) || (Math.abs(state.dayAheadResult.flow - level.expectedFlow) <= 0.01 && state.dayAheadResult.nodeLmps.west === level.expectedNodeLmp.west && state.dayAheadResult.nodeLmps.east === level.expectedNodeLmp.east);
     const reserveMatch = !["commitmentReserve", "integrated"].includes(level.controlMode) || level.resources.every((resource) => Math.abs(state.dayAheadResult.reserveAwards[resource.id] - level.expectedReserveAwards[resource.id]) <= 0.01);
+    const dispatchMatch = !["commitmentReserve", "integrated"].includes(level.controlMode) || level.resources.every((resource) => Math.abs(Number(dayAheadOfferValues(level)[resource.id].dispatch) - Number(level.defaultDispatch[resource.id])) <= 0.01);
     const forecastMatch = level.controlMode !== "forecast" || awardsMatch;
-    const perfect = awardsMatch && congestionMatch && reserveMatch && forecastMatch;
+    const perfect = awardsMatch && congestionMatch && reserveMatch && dispatchMatch && forecastMatch;
     const status = perfect ? "green" : "yellow";
     state.dayAheadStatuses.set(level.id, status);
     saveProgress();
@@ -1893,6 +1924,26 @@
     state.dayAheadStatuses.delete(level.id);
     saveProgress();
     openDayAheadLevel(level.id);
+  }
+
+  function revealDayAheadAnswer() {
+    const level = getDayAheadLevel();
+    if (["commitmentReserve", "integrated"].includes(level.controlMode)) {
+      state.dayAheadOffers[level.id] = Object.fromEntries(level.resources.map((resource) => [resource.id, { commitment: Number(level.defaultCommitment?.[resource.id] ?? 0), dispatch: Number(level.defaultDispatch?.[resource.id] ?? 0), reserve: Number(level.defaultReserve?.[resource.id] ?? 0) }]));
+    } else if (level.controlMode === "commitment") {
+      state.dayAheadOffers[level.id] = { ...level.defaultCommitment };
+    } else if (level.controlMode === "reserve") {
+      state.dayAheadOffers[level.id] = { ...level.defaultReserve };
+    } else if (["dispatch", "congestion", "forecast"].includes(level.controlMode)) {
+      state.dayAheadOffers[level.id] = { ...(level.defaultDispatch || level.expectedAwards) };
+    } else {
+      state.dayAheadOffers[level.id] = { ...level.expectedAwards };
+    }
+    state.dayAheadResult = null;
+    renderDayAheadOffers(level);
+    renderDayAheadStack(level);
+    runDayAheadMarket();
+    saveProgress();
   }
 
   function resetDayAheadProgress() {
@@ -2900,6 +2951,21 @@
     });
     els["day-ahead-run-button"].addEventListener("click", runDayAheadMarket);
     els["day-ahead-check-button"].addEventListener("click", checkDayAheadSchedule);
+    els["day-ahead-reveal-button"].addEventListener("click", revealDayAheadAnswer);
+    els["day-ahead-offers"].addEventListener("click", (event) => {
+      const button = event.target.closest('[data-day-ahead-kind="commitment"]');
+      if (!button) return;
+      const level = getDayAheadLevel();
+      const id = button.dataset.dayAheadOffer;
+      if (!state.dayAheadOffers[level.id] || typeof state.dayAheadOffers[level.id] !== "object") state.dayAheadOffers[level.id] = {};
+      if (!state.dayAheadOffers[level.id][id] || typeof state.dayAheadOffers[level.id][id] !== "object") state.dayAheadOffers[level.id][id] = { commitment: 0, dispatch: 0, reserve: 0 };
+      state.dayAheadOffers[level.id][id].commitment = state.dayAheadOffers[level.id][id].commitment ? 0 : 1;
+      state.dayAheadResult = null;
+      renderDayAheadOffers(level);
+      renderDayAheadStack(level);
+      renderDayAheadResult();
+      saveProgress();
+    });
     els["day-ahead-offers"].addEventListener("input", (event) => {
       const input = event.target.closest("[data-day-ahead-offer]");
       if (!input) return;
@@ -2914,7 +2980,7 @@
         state.dayAheadOffers[level.id][id] = Number(input.value);
       }
       const readout = els["day-ahead-offers"].querySelector(`[data-day-ahead-readout="${id}${kind ? `-${kind}` : ""}"]`);
-      if (readout) readout.textContent = kind === "commitment" ? (Number(input.value) ? "ON" : "OFF") : `${input.value} ${dayAheadControlConfig(level, level.resources.find((resource) => resource.id === id)).suffix}`;
+      if (readout) readout.textContent = kind === "commitment" ? (Number(input.value) ? "ON" : "OFF") : kind === "dispatch" ? `${input.value} MW dispatch` : `${input.value} ${dayAheadControlConfig(level, level.resources.find((resource) => resource.id === id)).suffix}`;
       state.dayAheadResult = null;
       renderDayAheadStack(level);
       renderDayAheadResult();
