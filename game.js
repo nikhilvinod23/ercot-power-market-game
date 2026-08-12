@@ -3,7 +3,7 @@
 
   const PROGRESS_KEY = "power-market-solver-progress.v3";
   const THEME_KEY = "power-market-solver-theme.v1";
-  const CONSTRUCTION_INPUT_VERSION = 3;
+  const CONSTRUCTION_INPUT_VERSION = 4;
   const DAY_AHEAD_INPUT_VERSION = 7;
   const colors = {
     red: "#ff3b30",
@@ -499,129 +499,168 @@
     {
       id: 6,
       title: "Level 6: Split delivery",
-      demand: 90,
-      description: "Two generators feed a west hub, but a 55 MW bottleneck must be split between a north load and a central transfer to the south load.",
+      demand: 80,
+      description: "Three generators and three loads share a 20 MW west-to-central bottleneck. Split the west supply between a local load and two downstream delivery paths.",
       nodes: [
-        { id: "solar-1", type: "resource", name: "West solar", capacity: 40, offer: 8 },
-        { id: "gas-1", type: "resource", name: "West gas", capacity: 55, offer: 28 },
+        { id: "solar-1", type: "resource", name: "West solar", capacity: 30, offer: 8 },
+        { id: "wind-1", type: "resource", name: "West wind", capacity: 30, offer: 12 },
+        { id: "gas-1", type: "resource", name: "East gas", capacity: 30, offer: 28 },
         { id: "west-1", type: "bus", name: "West hub" },
         { id: "central-1", type: "bus", name: "Central hub" },
-        { id: "north-1", type: "load", name: "North load", demand: 35 },
-        { id: "south-1", type: "load", name: "South load", demand: 55 }
+        { id: "east-1", type: "bus", name: "East hub" },
+        { id: "north-1", type: "load", name: "North load", demand: 30 },
+        { id: "central-load-1", type: "load", name: "Central load", demand: 25 },
+        { id: "south-1", type: "load", name: "South load", demand: 25 }
       ],
       lines: [
-        { id: "line-1", name: "Solar to West", capacity: 45, flow: 40 },
-        { id: "line-2", name: "Gas to West", capacity: 60, flow: 50 },
-        { id: "line-3", name: "West to North", capacity: 40, flow: 35 },
-        { id: "line-4", name: "West to Central", capacity: 55, flow: 55 },
-        { id: "line-5", name: "Central to South", capacity: 60, flow: 55 }
+        { id: "line-1", name: "West solar to West hub", capacity: 35, flow: 25 },
+        { id: "line-2", name: "West wind to West hub", capacity: 35, flow: 25 },
+        { id: "line-3", name: "East gas to East hub", capacity: 35, flow: 30 },
+        { id: "line-4", name: "West hub to North load", capacity: 35, flow: 30 },
+        { id: "line-5", name: "West hub to Central hub", capacity: 20, flow: 20 },
+        { id: "line-6", name: "Central hub to Central load", capacity: 30, flow: 25 },
+        { id: "line-7", name: "East hub to Central hub", capacity: 15, flow: 5 },
+        { id: "line-8", name: "East hub to South load", capacity: 30, flow: 25 }
       ]
     },
     {
       id: 7,
       title: "Level 7: Parallel corridors",
-      demand: 80,
-      description: "Parallel west-to-central corridors and a second west-to-east path divide power across two loads. Keep the parallel lines visually separate while preserving their shared endpoints.",
+      demand: 100,
+      description: "Four generators serve three loads through parallel West-to-Central corridors, a West-to-East path, and a shared downstream bottleneck. The parallel lines are visually offset but share endpoints.",
       nodes: [
-        { id: "wind-1", type: "resource", name: "West wind", capacity: 35, offer: 5 },
-        { id: "gas-1", type: "resource", name: "West gas", capacity: 35, offer: 25 },
-        { id: "solar-1", type: "resource", name: "East solar", capacity: 25, offer: 12 },
+        { id: "wind-1", type: "resource", name: "West wind", capacity: 25, offer: 5 },
+        { id: "solar-1", type: "resource", name: "West solar", capacity: 20, offer: 8 },
+        { id: "gas-1", type: "resource", name: "Central gas", capacity: 30, offer: 25 },
+        { id: "hydro-1", type: "resource", name: "East hydro", capacity: 25, offer: 18 },
         { id: "west-1", type: "bus", name: "West hub" },
         { id: "central-1", type: "bus", name: "Central hub" },
         { id: "east-1", type: "bus", name: "East hub" },
-        { id: "north-1", type: "load", name: "North load", demand: 45 },
-        { id: "south-1", type: "load", name: "South load", demand: 35 }
+        { id: "north-1", type: "load", name: "North load", demand: 40 },
+        { id: "south-1", type: "load", name: "South load", demand: 20 },
+        { id: "east-load-1", type: "load", name: "East load", demand: 40 }
       ],
       lines: [
-        { id: "line-1", name: "Wind to West", capacity: 40, flow: 30 },
-        { id: "line-2", name: "Gas to West", capacity: 40, flow: 30 },
-        { id: "line-3", name: "Solar to East", capacity: 30, flow: 20 },
-        { id: "line-4", name: "West to Central", capacity: 30, flow: 25 },
-        { id: "line-5", name: "West to Central", capacity: 25, flow: 20 },
-        { id: "line-6", name: "West to East", capacity: 20, flow: 15 },
-        { id: "line-7", name: "Central to North", capacity: 50, flow: 45 },
-        { id: "line-8", name: "East to South", capacity: 40, flow: 35 }
+        { id: "line-1", name: "West wind to West hub", capacity: 30, flow: 25 },
+        { id: "line-2", name: "West solar to West hub", capacity: 25, flow: 20 },
+        { id: "line-3", name: "Central gas to Central hub", capacity: 35, flow: 30 },
+        { id: "line-4", name: "East hydro to East hub", capacity: 30, flow: 25 },
+        { id: "line-5", name: "West hub to Central hub", capacity: 25, flow: 20 },
+        { id: "line-6", name: "West hub to Central hub", capacity: 20, flow: 15 },
+        { id: "line-7", name: "West hub to East hub", capacity: 15, flow: 10 },
+        { id: "line-8", name: "Central hub to North load", capacity: 45, flow: 40 },
+        { id: "line-9", name: "Central hub to South load", capacity: 35, flow: 20 },
+        { id: "line-10", name: "East hub to East load", capacity: 45, flow: 40 },
+        { id: "line-11", name: "Central hub to East hub", capacity: 15, flow: 5 }
       ]
     },
     {
       id: 8,
       title: "Level 8: Meshed loop",
-      demand: 80,
-      description: "A looped network carries circulating flow while serving two loads. Every junction must balance, even when power can travel around the mesh in more than one direction.",
+      demand: 100,
+      description: "Four generators and four loads form a meshed loop. Power circulates through West, Central, East, and South hubs while every load remains balanced.",
       nodes: [
-        { id: "west-gas-1", type: "resource", name: "West gas", capacity: 35, offer: 20 },
-        { id: "central-gas-1", type: "resource", name: "Central gas", capacity: 35, offer: 30 },
+        { id: "west-gas-1", type: "resource", name: "West gas", capacity: 30, offer: 20 },
+        { id: "central-gas-1", type: "resource", name: "Central gas", capacity: 30, offer: 30 },
         { id: "east-solar-1", type: "resource", name: "East solar", capacity: 25, offer: 8 },
+        { id: "south-battery-1", type: "resource", name: "South battery", capacity: 15, offer: 42 },
         { id: "west-1", type: "bus", name: "West hub" },
         { id: "central-1", type: "bus", name: "Central hub" },
         { id: "east-1", type: "bus", name: "East hub" },
-        { id: "north-1", type: "load", name: "North load", demand: 30 },
-        { id: "south-1", type: "load", name: "South load", demand: 50 }
+        { id: "south-1", type: "bus", name: "South hub" },
+        { id: "city-1", type: "load", name: "City load", demand: 25 },
+        { id: "north-1", type: "load", name: "North load", demand: 25 },
+        { id: "valley-1", type: "load", name: "Valley load", demand: 25 },
+        { id: "south-load-1", type: "load", name: "South load", demand: 25 }
       ],
       lines: [
-        { id: "line-1", name: "West gas to West", capacity: 40, flow: 30 },
-        { id: "line-2", name: "Central gas to Central", capacity: 40, flow: 30 },
-        { id: "line-3", name: "East solar to East", capacity: 30, flow: 20 },
-        { id: "line-4", name: "West to Central", capacity: 45, flow: 40 },
-        { id: "line-5", name: "Central to East", capacity: 45, flow: 40 },
-        { id: "line-6", name: "East to West", capacity: 20, flow: 10 },
-        { id: "line-7", name: "Central to North", capacity: 35, flow: 30 },
-        { id: "line-8", name: "East to South", capacity: 55, flow: 50 }
+        { id: "line-1", name: "West gas to West hub", capacity: 35, flow: 30 },
+        { id: "line-2", name: "Central gas to Central hub", capacity: 35, flow: 30 },
+        { id: "line-3", name: "East solar to East hub", capacity: 30, flow: 25 },
+        { id: "line-4", name: "South battery to South hub", capacity: 20, flow: 15 },
+        { id: "line-5", name: "West hub to City load", capacity: 30, flow: 25 },
+        { id: "line-6", name: "Central hub to North load", capacity: 30, flow: 25 },
+        { id: "line-7", name: "East hub to Valley load", capacity: 30, flow: 25 },
+        { id: "line-8", name: "South hub to South load", capacity: 30, flow: 25 },
+        { id: "line-9", name: "West hub to Central hub", capacity: 25, flow: 10 },
+        { id: "line-10", name: "Central hub to East hub", capacity: 25, flow: 15 },
+        { id: "line-11", name: "East hub to South hub", capacity: 25, flow: 15 },
+        { id: "line-12", name: "South hub to West hub", capacity: 20, flow: 5 }
       ]
     },
     {
       id: 9,
       title: "Level 9: N-1 reliability",
-      demand: 80,
-      description: "Build a network that serves both loads and keeps a second corridor available if the primary west-to-central line fails. Reliability is about preserved capacity, not cost.",
-      contingency: { lineId: "line-4", label: "Primary west-to-central corridor" },
+      demand: 110,
+      description: "Five generators serve four loads while an N-1 requirement keeps an alternate corridor available if the primary West-to-Central line fails.",
+      contingency: { lineId: "line-7", label: "Primary west-to-central corridor" },
       nodes: [
-        { id: "wind-1", type: "resource", name: "West wind", capacity: 40, offer: 5 },
-        { id: "gas-1", type: "resource", name: "East gas", capacity: 40, offer: 35 },
+        { id: "west-wind-1", type: "resource", name: "West wind", capacity: 25, offer: 5 },
+        { id: "west-solar-1", type: "resource", name: "West solar", capacity: 20, offer: 9 },
+        { id: "central-gas-1", type: "resource", name: "Central gas", capacity: 25, offer: 28 },
+        { id: "east-gas-1", type: "resource", name: "East gas", capacity: 25, offer: 35 },
+        { id: "east-battery-1", type: "resource", name: "East battery", capacity: 15, offer: 42 },
         { id: "west-1", type: "bus", name: "West hub" },
         { id: "central-1", type: "bus", name: "Central hub" },
         { id: "east-1", type: "bus", name: "East hub" },
-        { id: "north-1", type: "load", name: "North load", demand: 40 },
-        { id: "south-1", type: "load", name: "South load", demand: 40 }
+        { id: "city-1", type: "load", name: "City load", demand: 25 },
+        { id: "north-1", type: "load", name: "North load", demand: 30 },
+        { id: "south-1", type: "load", name: "South load", demand: 30 },
+        { id: "valley-1", type: "load", name: "Valley load", demand: 25 }
       ],
       lines: [
-        { id: "line-1", name: "Wind to West", capacity: 45, flow: 40 },
-        { id: "line-2", name: "Gas to East", capacity: 45, flow: 40 },
-        { id: "line-3", name: "West to North", capacity: 45, flow: 40 },
-        { id: "line-4", name: "West to Central", capacity: 40, flow: 0 },
-        { id: "line-5", name: "West to Central", capacity: 40, flow: 0 },
-        { id: "line-6", name: "East to Central", capacity: 45, flow: 40 },
-        { id: "line-7", name: "Central to South", capacity: 45, flow: 40 }
+        { id: "line-1", name: "West wind to West hub", capacity: 30, flow: 25 },
+        { id: "line-2", name: "West solar to West hub", capacity: 25, flow: 20 },
+        { id: "line-3", name: "Central gas to Central hub", capacity: 30, flow: 25 },
+        { id: "line-4", name: "East gas to East hub", capacity: 30, flow: 25 },
+        { id: "line-5", name: "East battery to East hub", capacity: 20, flow: 15 },
+        { id: "line-6", name: "West hub to City load", capacity: 30, flow: 25 },
+        { id: "line-7", name: "West hub to Central hub", capacity: 25, flow: 20 },
+        { id: "line-8", name: "West hub to Central hub", capacity: 30, flow: 0 },
+        { id: "line-9", name: "Central hub to North load", capacity: 35, flow: 30 },
+        { id: "line-10", name: "Central hub to East hub", capacity: 25, flow: 15 },
+        { id: "line-11", name: "East hub to South load", capacity: 35, flow: 30 },
+        { id: "line-12", name: "East hub to Valley load", capacity: 30, flow: 25 }
       ]
     },
     {
       id: 10,
       title: "Level 10: Resilient mesh",
       demand: 120,
-      description: "The capstone combines parallel paths, a 10 MW interface, a loop, and a contingency. Serve three loads while preserving an alternate route around the constrained central-to-east link.",
-      contingency: { lineId: "line-6", label: "Central-to-east interface" },
+      description: "The capstone combines five generators, five loads, parallel paths, a 10 MW interface, a loop, and N-1 reliability. Preserve an alternate route while serving every load.",
+      contingency: { lineId: "line-10", label: "Central-to-east interface" },
       nodes: [
-        { id: "wind-1", type: "resource", name: "West wind", capacity: 45, offer: 5 },
-        { id: "gas-1", type: "resource", name: "Central gas", capacity: 65, offer: 28 },
-        { id: "solar-1", type: "resource", name: "East solar", capacity: 25, offer: 10 },
+        { id: "west-wind-1", type: "resource", name: "West wind", capacity: 30, offer: 5 },
+        { id: "west-solar-1", type: "resource", name: "West solar", capacity: 25, offer: 9 },
+        { id: "central-gas-1", type: "resource", name: "Central gas", capacity: 45, offer: 28 },
+        { id: "east-solar-1", type: "resource", name: "East solar", capacity: 15, offer: 12 },
+        { id: "south-battery-1", type: "resource", name: "South battery", capacity: 5, offer: 42 },
         { id: "west-1", type: "bus", name: "West hub" },
         { id: "central-1", type: "bus", name: "Central hub" },
         { id: "east-1", type: "bus", name: "East hub" },
-        { id: "city-1", type: "load", name: "City load", demand: 40 },
-        { id: "valley-1", type: "load", name: "Valley load", demand: 40 },
-        { id: "south-1", type: "load", name: "South load", demand: 40 }
+        { id: "south-1", type: "bus", name: "South hub" },
+        { id: "city-1", type: "load", name: "City load", demand: 25 },
+        { id: "north-1", type: "load", name: "North load", demand: 25 },
+        { id: "valley-1", type: "load", name: "Valley load", demand: 25 },
+        { id: "harbor-1", type: "load", name: "Harbor load", demand: 20 },
+        { id: "south-load-1", type: "load", name: "South load", demand: 25 }
       ],
       lines: [
-        { id: "line-1", name: "Wind to West", capacity: 50, flow: 40 },
-        { id: "line-2", name: "Gas to Central", capacity: 70, flow: 60 },
-        { id: "line-3", name: "Solar to East", capacity: 30, flow: 20 },
-        { id: "line-4", name: "West to Central", capacity: 35, flow: 20 },
-        { id: "line-5", name: "West to East", capacity: 25, flow: 20 },
-        { id: "line-6", name: "Central to East", capacity: 10, flow: 10 },
-        { id: "line-7", name: "Central to City", capacity: 45, flow: 40 },
-        { id: "line-8", name: "Central to South", capacity: 35, flow: 30 },
-        { id: "line-9", name: "East to Valley", capacity: 45, flow: 40 },
-        { id: "line-10", name: "East to South", capacity: 20, flow: 10 }
+        { id: "line-1", name: "West wind to West hub", capacity: 35, flow: 30 },
+        { id: "line-2", name: "West solar to West hub", capacity: 30, flow: 25 },
+        { id: "line-3", name: "Central gas to Central hub", capacity: 50, flow: 45 },
+        { id: "line-4", name: "East solar to East hub", capacity: 20, flow: 15 },
+        { id: "line-5", name: "South battery to South hub", capacity: 10, flow: 5 },
+        { id: "line-6", name: "West hub to City load", capacity: 30, flow: 25 },
+        { id: "line-7", name: "Central hub to North load", capacity: 30, flow: 25 },
+        { id: "line-8", name: "East hub to Valley load", capacity: 30, flow: 25 },
+        { id: "line-9", name: "East hub to Harbor load", capacity: 30, flow: 20 },
+        { id: "line-10", name: "Central hub to East hub", capacity: 10, flow: 10 },
+        { id: "line-11", name: "West hub to East hub", capacity: 30, flow: 20 },
+        { id: "line-12", name: "Central hub to South hub", capacity: 25, flow: 20 },
+        { id: "line-13", name: "South hub to South load", capacity: 30, flow: 25 },
+        { id: "line-14", name: "West hub to Central hub", capacity: 20, flow: 10 },
+        { id: "line-15", name: "East hub to South hub", capacity: 20, flow: 0 }
       ]
     }
   ];
@@ -2416,7 +2455,7 @@
     if (!line) return;
     const from = state.construction.nodes.find((node) => node.id === line.from);
     const to = state.construction.nodes.find((node) => node.id === line.to);
-    const connection = line.placed ? `${constructionNodeTypeLabel(from?.type)} -&gt; ${constructionNodeTypeLabel(to?.type)}` : "Not connected yet";
+    const connection = line.placed ? `${from?.name || "Unknown"} -&gt; ${to?.name || "Unknown"}` : "Not connected yet";
     els["construction-inspector"].innerHTML = `<h3>${constructionLineDisplayName(line)}</h3><p>${connection}</p><p>Preset flow: ${line.flow} MW | Preset limit: ${line.capacity} MW</p><div class="construction-inspector-actions"><button type="button" class="construction-return" data-construction-action="return:line:${line.id}">Return to tray</button><button type="button" class="construction-clear-button" data-construction-action="clear">Clear all</button></div>`;
   }
 
