@@ -3,7 +3,7 @@
 
   const PROGRESS_KEY = "power-market-solver-progress.v3";
   const THEME_KEY = "power-market-solver-theme.v1";
-  const DAY_AHEAD_INPUT_VERSION = 6;
+  const DAY_AHEAD_INPUT_VERSION = 7;
   const colors = {
     red: "#ff3b30",
     yellow: "#ffd60a",
@@ -594,10 +594,11 @@
       theme: "Expected-value hedge",
       controlMode: "forecastHedge",
       demand: 120,
-      actualDemand: 130,
-      defaultDispatch: { wind: 25, gas: 80, peaker: 15 },
-      description: "Wind and load forecasts have multiple real-time outcomes. Choose a day-ahead schedule that hedges uncovered real-time energy at the lowest expected total cost.",
-      hedgeScenarios: [{ name: "Calm wind", probability: 0.6, windAvailable: 20, demand: 130 }, { name: "Normal wind", probability: 0.4, windAvailable: 40, demand: 130 }],
+      loadLabel: "120 MW day-ahead forecast",
+      defaultDispatch: { wind: 20, gas: 80, peaker: 20 },
+      description: "Use the probability forecast for wind and demand to hedge real-time exposure. Hint: compare each schedule with an expected-value (EV) calculation.",
+      windForecast: [{ strength: 20, probability: 0.6 }, { strength: 40, probability: 0.4 }],
+      demandForecast: [{ demand: 120, probability: 0.5 }, { demand: 140, probability: 0.5 }],
       hedgeOffer: 120,
       realTimeOffer: 200,
       resources: [
@@ -605,7 +606,7 @@
         { id: "gas", name: "Gas unit", capacity: 80, offer: 30, className: "gas", actualCapacity: 80 },
         { id: "peaker", name: "Hedge peaker", capacity: 50, offer: 95, className: "peaker", actualCapacity: 50, startupCost: 400 }
       ],
-      expectedAwards: { wind: 25, gas: 80, peaker: 15 }
+      expectedAwards: { wind: 20, gas: 80, peaker: 20 }
     },
     {
       id: 6,
@@ -1177,7 +1178,7 @@
 
   function cacheElements() {
     [
-      "mode-select-screen", "lmp-mode-button", "network-mode-button", "day-ahead-mode-button", "mode-back-button", "day-ahead-select-screen", "day-ahead-mode-back-button", "day-ahead-full-reset-button", "day-ahead-level-circles", "day-ahead-level-message", "day-ahead-level-screen", "day-ahead-back-button", "day-ahead-reset-button", "day-ahead-level-title", "day-ahead-level-description", "day-ahead-hours-summary", "day-ahead-demand", "day-ahead-reserve-summary", "day-ahead-network-summary", "day-ahead-offers", "day-ahead-stack", "day-ahead-stack-max", "day-ahead-run-button", "day-ahead-check-button", "day-ahead-reveal-button", "day-ahead-result", "day-ahead-prev-button", "day-ahead-next-button", "construction-select-screen", "construction-mode-back-button", "construction-full-reset-button", "construction-level-circles", "construction-level-screen", "construction-back-button", "construction-reset-button", "construction-level-title", "construction-level-description", "construction-piece-tray", "construction-map", "construction-lines", "construction-nodes", "construction-inspector", "construction-check-button", "construction-reveal-button", "construction-feedback", "construction-prev-button", "construction-next-button", "level-select-screen", "level-screen", "level-circles", "level-select-message",
+      "mode-select-screen", "lmp-mode-button", "network-mode-button", "day-ahead-mode-button", "mode-back-button", "day-ahead-select-screen", "day-ahead-mode-back-button", "day-ahead-full-reset-button", "day-ahead-level-circles", "day-ahead-level-message", "day-ahead-level-screen", "day-ahead-back-button", "day-ahead-reset-button", "day-ahead-level-title", "day-ahead-level-description", "day-ahead-hours-summary", "day-ahead-demand", "day-ahead-reserve-summary", "day-ahead-network-summary", "day-ahead-forecast", "day-ahead-offers", "day-ahead-stack", "day-ahead-stack-max", "day-ahead-run-button", "day-ahead-check-button", "day-ahead-reveal-button", "day-ahead-result", "day-ahead-prev-button", "day-ahead-next-button", "construction-select-screen", "construction-mode-back-button", "construction-full-reset-button", "construction-level-circles", "construction-level-screen", "construction-back-button", "construction-reset-button", "construction-level-title", "construction-level-description", "construction-piece-tray", "construction-map", "construction-lines", "construction-nodes", "construction-inspector", "construction-check-button", "construction-reveal-button", "construction-feedback", "construction-prev-button", "construction-next-button", "level-select-screen", "level-screen", "level-circles", "level-select-message",
       "back-button", "reset-level-button", "level-page-title", "map-connections", "map-resources",
       "map-buses", "map-loads", "network-map", "map-title", "map-description", "map-hover-popover",
       "solve-popover", "check-network-button", "network-feedback", "completion-panel", "completion-title",
@@ -1737,6 +1738,18 @@
     return { awards, remaining, overage, delivered, realTimeAwards, realTimeImbalance, realTimeShortfall, dayAheadCost, realTimeCost, totalCost: dayAheadCost + realTimeCost, feasible: remaining <= 0.01 && overage <= 0.01, lmp: marginal?.offer ?? null };
   }
 
+  function forecastHedgeScenarios(level) {
+    if (Array.isArray(level.windForecast) && Array.isArray(level.demandForecast)) {
+      return level.windForecast.flatMap((wind) => level.demandForecast.map((demand) => ({
+        name: `${Number(wind.strength).toFixed(0)} MW wind / ${Number(demand.demand).toFixed(0)} MW demand`,
+        probability: Number(wind.probability) * Number(demand.probability),
+        windAvailable: Number(wind.strength),
+        demand: Number(demand.demand)
+      })));
+    }
+    return level.hedgeScenarios || [];
+  }
+
   function evaluateForecastHedge(level, values) {
     const awards = Object.fromEntries(level.resources.map((resource) => [resource.id, clippedValue(values[resource.id], 0, resource.capacity)]));
     const totalDispatch = Object.values(awards).reduce((sum, value) => sum + value, 0);
@@ -1744,7 +1757,7 @@
     const overage = Math.max(0, totalDispatch - level.demand);
     const dayAheadCost = level.resources.reduce((sum, resource) => sum + dayAheadCurveCost(resource, awards[resource.id]), 0);
     const peakerAward = awards.peaker || 0;
-    const scenarioResults = (level.hedgeScenarios || []).map((scenario) => {
+    const scenarioResults = forecastHedgeScenarios(level).map((scenario) => {
       const delivered = level.resources.reduce((sum, resource) => {
         const available = resource.id === "wind" ? scenario.windAvailable : Number(resource.actualCapacity ?? resource.capacity);
         return sum + Math.min(awards[resource.id], available);
@@ -1970,10 +1983,25 @@
     els["day-ahead-demand"].textContent = level.loadLabel || (level.actualDemand !== undefined ? `${level.demand} MW DA · ${level.actualDemand} MW actual` : `${level.demand} MW`);
     els["day-ahead-reserve-summary"].textContent = level.reserveRequirement ? `${level.reserveRequirement} MW` : "None";
     els["day-ahead-network-summary"].textContent = level.networkLabel || "None — single bus";
+    renderForecastHedgeForecast(level);
     renderDayAheadOffers(level);
     renderDayAheadStack(level);
     renderDayAheadResult();
     renderDayAheadNavigation();
+  }
+
+  function renderForecastHedgeForecast(level) {
+    const forecast = els["day-ahead-forecast"];
+    if (!forecast) return;
+    if (level.controlMode !== "forecastHedge") {
+      forecast.hidden = true;
+      forecast.innerHTML = "";
+      return;
+    }
+    const windRows = (level.windForecast || []).map((entry) => `<span>${Number(entry.strength).toFixed(0)} MW wind</span><strong>${Math.round(Number(entry.probability) * 100)}%</strong>`).join("");
+    const demandRows = (level.demandForecast || []).map((entry) => `<span>${Number(entry.demand).toFixed(0)} MW demand</span><strong>${Math.round(Number(entry.probability) * 100)}%</strong>`).join("");
+    forecast.hidden = false;
+    forecast.innerHTML = `<strong class="day-ahead-forecast-title">Probability forecast</strong><span class="day-ahead-forecast-note">Wind and demand outcomes are independent. Use probability × cost for each outcome combination.</span><div class="day-ahead-forecast-columns"><div><span class="day-ahead-forecast-label">Wind strength</span>${windRows}</div><div><span class="day-ahead-forecast-label">Load demand</span>${demandRows}</div></div>`;
   }
 
   function resetDayAheadLevel() {

@@ -75,6 +75,13 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--blue); outl
 .day-ahead-requirement-box { display: grid; gap: 4px; min-height: 48px; padding: 9px 11px; background: var(--surface); box-shadow: 0 3px 12px var(--shadow); text-align: left; }
 .day-ahead-requirement-box span { color: var(--muted); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
 .day-ahead-requirement-box strong { color: var(--ink); font-size: 0.84rem; }
+.day-ahead-forecast { display: grid; gap: 8px; max-width: 760px; margin: 0 auto 15px; padding: 11px 13px; background: var(--surface); box-shadow: 0 3px 12px var(--shadow); color: var(--ink); }
+.day-ahead-forecast-title { font-size: 0.8rem; letter-spacing: 0.04em; text-transform: uppercase; }
+.day-ahead-forecast-note { color: var(--muted); font-size: 0.75rem; line-height: 1.35; }
+.day-ahead-forecast-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.day-ahead-forecast-columns > div { display: grid; grid-template-columns: 1fr auto; gap: 5px 12px; align-items: center; font-size: 0.78rem; }
+.day-ahead-forecast-label { grid-column: 1 / -1; color: var(--muted); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.day-ahead-forecast-columns strong { color: var(--accent); }
 @media (max-width: 760px) { .day-ahead-summary { grid-template-columns: repeat(2, minmax(130px, 1fr)); } }
 .day-ahead-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: stretch; }
 .day-ahead-panel { min-width: 0; padding: 16px; background: var(--surface); box-shadow: 0 8px 24px var(--shadow); }
