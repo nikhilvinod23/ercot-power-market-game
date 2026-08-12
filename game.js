@@ -494,6 +494,134 @@
         { id: "line-6", name: "Central to city", capacity: 45, flow: 40 },
         { id: "line-7", name: "East to valley", capacity: 60, flow: 55 }
       ]
+    },
+    {
+      id: 6,
+      title: "Level 6: Split delivery",
+      demand: 90,
+      description: "Two generators feed a west hub, but a 55 MW bottleneck must be split between a north load and a central transfer to the south load.",
+      nodes: [
+        { id: "solar-1", type: "resource", name: "West solar", capacity: 40, offer: 8 },
+        { id: "gas-1", type: "resource", name: "West gas", capacity: 55, offer: 28 },
+        { id: "west-1", type: "bus", name: "West hub" },
+        { id: "central-1", type: "bus", name: "Central hub" },
+        { id: "north-1", type: "load", name: "North load", demand: 35 },
+        { id: "south-1", type: "load", name: "South load", demand: 55 }
+      ],
+      lines: [
+        { id: "line-1", name: "Solar to West", capacity: 45, flow: 40 },
+        { id: "line-2", name: "Gas to West", capacity: 60, flow: 50 },
+        { id: "line-3", name: "West to North", capacity: 40, flow: 35 },
+        { id: "line-4", name: "West to Central", capacity: 55, flow: 55 },
+        { id: "line-5", name: "Central to South", capacity: 60, flow: 55 }
+      ]
+    },
+    {
+      id: 7,
+      title: "Level 7: Parallel corridors",
+      demand: 80,
+      description: "Parallel west-to-central corridors and a second west-to-east path divide power across two loads. Do not assume the first line is the primary route.",
+      nodes: [
+        { id: "wind-1", type: "resource", name: "West wind", capacity: 35, offer: 5 },
+        { id: "gas-1", type: "resource", name: "West gas", capacity: 35, offer: 25 },
+        { id: "solar-1", type: "resource", name: "East solar", capacity: 25, offer: 12 },
+        { id: "west-1", type: "bus", name: "West hub" },
+        { id: "central-1", type: "bus", name: "Central hub" },
+        { id: "east-1", type: "bus", name: "East hub" },
+        { id: "north-1", type: "load", name: "North load", demand: 45 },
+        { id: "south-1", type: "load", name: "South load", demand: 35 }
+      ],
+      lines: [
+        { id: "line-1", name: "Wind to West", capacity: 40, flow: 30 },
+        { id: "line-2", name: "Gas to West", capacity: 40, flow: 30 },
+        { id: "line-3", name: "Solar to East", capacity: 30, flow: 20 },
+        { id: "line-4", name: "West to Central", capacity: 30, flow: 25 },
+        { id: "line-5", name: "West to Central", capacity: 25, flow: 20 },
+        { id: "line-6", name: "West to East", capacity: 20, flow: 15 },
+        { id: "line-7", name: "Central to North", capacity: 50, flow: 45 },
+        { id: "line-8", name: "East to South", capacity: 40, flow: 35 }
+      ]
+    },
+    {
+      id: 8,
+      title: "Level 8: Meshed loop",
+      demand: 80,
+      description: "A looped network carries circulating flow while serving two loads. Every junction must balance, even when power can travel around the mesh in more than one direction.",
+      nodes: [
+        { id: "west-gas-1", type: "resource", name: "West gas", capacity: 35, offer: 20 },
+        { id: "central-gas-1", type: "resource", name: "Central gas", capacity: 35, offer: 30 },
+        { id: "east-solar-1", type: "resource", name: "East solar", capacity: 25, offer: 8 },
+        { id: "west-1", type: "bus", name: "West hub" },
+        { id: "central-1", type: "bus", name: "Central hub" },
+        { id: "east-1", type: "bus", name: "East hub" },
+        { id: "north-1", type: "load", name: "North load", demand: 30 },
+        { id: "south-1", type: "load", name: "South load", demand: 50 }
+      ],
+      lines: [
+        { id: "line-1", name: "West gas to West", capacity: 40, flow: 30 },
+        { id: "line-2", name: "Central gas to Central", capacity: 40, flow: 30 },
+        { id: "line-3", name: "East solar to East", capacity: 30, flow: 20 },
+        { id: "line-4", name: "West to Central", capacity: 45, flow: 40 },
+        { id: "line-5", name: "Central to East", capacity: 45, flow: 40 },
+        { id: "line-6", name: "East to West", capacity: 20, flow: 10 },
+        { id: "line-7", name: "Central to North", capacity: 35, flow: 30 },
+        { id: "line-8", name: "East to South", capacity: 55, flow: 50 }
+      ]
+    },
+    {
+      id: 9,
+      title: "Level 9: N-1 reliability",
+      demand: 80,
+      description: "Build a network that serves both loads and keeps a second corridor available if the primary west-to-central line fails. Reliability is about preserved capacity, not cost.",
+      contingency: { lineId: "line-4", label: "Primary west-to-central corridor" },
+      nodes: [
+        { id: "wind-1", type: "resource", name: "West wind", capacity: 40, offer: 5 },
+        { id: "gas-1", type: "resource", name: "East gas", capacity: 40, offer: 35 },
+        { id: "west-1", type: "bus", name: "West hub" },
+        { id: "central-1", type: "bus", name: "Central hub" },
+        { id: "east-1", type: "bus", name: "East hub" },
+        { id: "north-1", type: "load", name: "North load", demand: 40 },
+        { id: "south-1", type: "load", name: "South load", demand: 40 }
+      ],
+      lines: [
+        { id: "line-1", name: "Wind to West", capacity: 45, flow: 40 },
+        { id: "line-2", name: "Gas to East", capacity: 45, flow: 40 },
+        { id: "line-3", name: "West to North", capacity: 45, flow: 40 },
+        { id: "line-4", name: "West to Central", capacity: 40, flow: 0 },
+        { id: "line-5", name: "West to Central", capacity: 40, flow: 0 },
+        { id: "line-6", name: "East to Central", capacity: 45, flow: 40 },
+        { id: "line-7", name: "Central to South", capacity: 45, flow: 40 }
+      ]
+    },
+    {
+      id: 10,
+      title: "Level 10: Resilient mesh",
+      demand: 120,
+      description: "The capstone combines parallel paths, a 10 MW interface, a loop, and a contingency. Serve three loads while preserving an alternate route around the constrained central-to-east link.",
+      contingency: { lineId: "line-6", label: "Central-to-east interface" },
+      nodes: [
+        { id: "wind-1", type: "resource", name: "West wind", capacity: 45, offer: 5 },
+        { id: "gas-1", type: "resource", name: "Central gas", capacity: 65, offer: 28 },
+        { id: "solar-1", type: "resource", name: "East solar", capacity: 25, offer: 10 },
+        { id: "west-1", type: "bus", name: "West hub" },
+        { id: "central-1", type: "bus", name: "Central hub" },
+        { id: "east-1", type: "bus", name: "East hub" },
+        { id: "city-1", type: "load", name: "City load", demand: 40 },
+        { id: "valley-1", type: "load", name: "Valley load", demand: 40 },
+        { id: "south-1", type: "load", name: "South load", demand: 40 }
+      ],
+      lines: [
+        { id: "line-1", name: "Wind to West", capacity: 50, flow: 40 },
+        { id: "line-2", name: "Gas to Central", capacity: 70, flow: 60 },
+        { id: "line-3", name: "Solar to East", capacity: 30, flow: 20 },
+        { id: "line-4", name: "West to Central", capacity: 35, flow: 20 },
+        { id: "line-5", name: "West to East", capacity: 25, flow: 20 },
+        { id: "line-6", name: "Central to East", capacity: 10, flow: 10 },
+        { id: "line-7", name: "Central to City", capacity: 45, flow: 40 },
+        { id: "line-8", name: "Central to South", capacity: 35, flow: 30 },
+        { id: "line-9", name: "East to Valley", capacity: 45, flow: 40 },
+        { id: "line-10", name: "East to South", capacity: 20, flow: 10 }
+      ]
     }
   ];
 
@@ -2157,6 +2285,22 @@
     return ["Junction"];
   }
 
+  function constructionTrayPieces(level) {
+    const pieces = [
+      ...level.nodes.map((piece) => ({ kind: "node", piece })),
+      ...level.lines.map((piece) => ({ kind: "line", piece }))
+    ];
+    const hash = (value) => {
+      let result = 2166136261;
+      for (const character of `${level.id}:${value}`) {
+        result ^= character.charCodeAt(0);
+        result = Math.imul(result, 16777619);
+      }
+      return result >>> 0;
+    };
+    return pieces.sort((a, b) => hash(a.piece.id) - hash(b.piece.id));
+  }
+
   function constructionPositions() {
     return new Map(state.construction.nodes.map((node) => [node.id, { x: node.x, y: node.y }]));
   }
@@ -2257,12 +2401,13 @@
   function renderConstructionTray() {
     const level = getConstructionLevel();
     const placedIds = new Set(state.construction.nodes.map((node) => node.id));
-    const nodeMarkup = level.nodes.map((piece) => {
-      const detail = piece.type === "resource" ? `${piece.capacity} MW - ${formatMoney(piece.offer)}/MWh` : piece.type === "load" ? `${piece.demand} MW demand` : "Network junction";
-      return `<button type="button" class="construction-component construction-node-piece ${piece.type}" draggable="true" data-construction-piece-id="${piece.id}" aria-label="${piece.name}"><strong>${piece.name}</strong><span>${detail}</span></button>`;
+    els["construction-piece-tray"].innerHTML = constructionTrayPieces(level).map(({ kind, piece }) => {
+      if (kind === "node") {
+        const detail = piece.type === "resource" ? `${piece.capacity} MW - ${formatMoney(piece.offer)}/MWh` : piece.type === "load" ? `${piece.demand} MW demand` : "Network junction";
+        return `<button type="button" class="construction-component construction-node-piece ${piece.type}" draggable="true" data-construction-piece-id="${piece.id}" aria-label="${piece.name}"><strong>${piece.name}</strong><span>${detail}</span></button>`;
+      }
+      return `<button type="button" class="construction-component construction-line-piece" draggable="true" data-construction-line-piece="${piece.id}" aria-label="${constructionLineDisplayName(piece)}, ${piece.flow} megawatt flow, ${piece.capacity} megawatt limit"><span class="line-piece-mark"></span><strong>${constructionLineDisplayName(piece)}</strong><span>Flow ${piece.flow} MW | Limit ${piece.capacity} MW</span></button>`;
     }).join("");
-    const lineMarkup = level.lines.map((piece) => `<button type="button" class="construction-component construction-line-piece" draggable="true" data-construction-line-piece="${piece.id}" aria-label="${constructionLineDisplayName(piece)}, ${piece.flow} megawatt flow, ${piece.capacity} megawatt limit"><span class="line-piece-mark"></span><strong>${constructionLineDisplayName(piece)}</strong><span>Flow ${piece.flow} MW | Limit ${piece.capacity} MW</span></button>`).join("");
-    els["construction-piece-tray"].innerHTML = nodeMarkup + lineMarkup;
     els["construction-piece-tray"].querySelectorAll("[data-construction-piece-id]").forEach((button) => {
       button.disabled = placedIds.has(button.dataset.constructionPieceId);
     });
@@ -2391,6 +2536,89 @@
       if (feasible) winningOrientation = { mask, balances };
     }
     if (!winningOrientation) errors.push("The preset flows cannot balance generation, grid nodes, and load demand with this topology.");
+    if (winningOrientation && level.contingency) {
+      const failedLine = placedLines.find((line) => line.id === level.contingency.lineId);
+      const remainingLines = placedLines.filter((line) => line.id !== level.contingency.lineId);
+      const networkCanServe = (availableLines) => {
+        const indexById = new Map(nodes.map((node, index) => [node.id, index]));
+        const source = nodes.length;
+        const sink = nodes.length + 1;
+        const capacity = Array.from({ length: nodes.length + 2 }, () => Array(nodes.length + 2).fill(0));
+        nodes.forEach((node, index) => {
+          if (node.type === "resource") capacity[source][index] += Math.max(0, Number(node.capacity) || 0);
+          if (node.type === "load") capacity[index][sink] += Math.max(0, Number(node.demand) || 0);
+        });
+        availableLines.forEach((line) => {
+          const from = indexById.get(line.from);
+          const to = indexById.get(line.to);
+          if (from === undefined || to === undefined) return;
+          const limit = Math.max(0, Number(line.capacity) || 0);
+          capacity[from][to] += limit;
+          capacity[to][from] += limit;
+        });
+        let delivered = 0;
+        while (true) {
+          const parent = Array(nodes.length + 2).fill(-1);
+          const queue = [source];
+          parent[source] = source;
+          while (queue.length && parent[sink] === -1) {
+            const current = queue.shift();
+            for (let next = 0; next < capacity.length; next += 1) {
+              if (parent[next] === -1 && capacity[current][next] > 0) {
+                parent[next] = current;
+                queue.push(next);
+              }
+            }
+          }
+          if (parent[sink] === -1) break;
+          let amount = Infinity;
+          for (let current = sink; current !== source; current = parent[current]) amount = Math.min(amount, capacity[parent[current]][current]);
+          for (let current = sink; current !== source; current = parent[current]) {
+            const previous = parent[current];
+            capacity[previous][current] -= amount;
+            capacity[current][previous] += amount;
+          }
+          delivered += amount;
+        }
+        return delivered + 0.0001 >= nodes.filter((node) => node.type === "load").reduce((sum, node) => sum + Number(node.demand || 0), 0);
+      };
+      const adjacency = new Map(nodes.map((node) => [node.id, []]));
+      remainingLines.forEach((line) => {
+        if (!adjacency.has(line.from) || !adjacency.has(line.to)) return;
+        adjacency.get(line.from).push({ id: line.to, capacity: Number(line.capacity) || 0 });
+        adjacency.get(line.to).push({ id: line.from, capacity: Number(line.capacity) || 0 });
+      });
+      const componentFor = (start) => {
+        const component = new Set([start]);
+        const queue = [start];
+        while (queue.length) {
+          const current = queue.shift();
+          (adjacency.get(current) || []).forEach((edge) => {
+            if (!component.has(edge.id)) {
+              component.add(edge.id);
+              queue.push(edge.id);
+            }
+          });
+        }
+        return component;
+      };
+      const components = [];
+      const seen = new Set();
+      nodes.forEach((node) => {
+        if (seen.has(node.id)) return;
+        const component = componentFor(node.id);
+        component.forEach((id) => seen.add(id));
+        components.push(component);
+      });
+      const contingencyFeasible = components.every((component) => {
+        const componentLoads = nodes.filter((node) => component.has(node.id) && node.type === "load");
+        if (!componentLoads.length) return true;
+        const generationCapacity = nodes.filter((node) => component.has(node.id) && node.type === "resource").reduce((sum, node) => sum + Number(node.capacity || 0), 0);
+        return generationCapacity + 0.0001 >= componentLoads.reduce((sum, node) => sum + Number(node.demand || 0), 0);
+      }) && networkCanServe(remainingLines);
+      if (!failedLine) errors.push("The required contingency line is missing.");
+      else if (!contingencyFeasible) errors.push(`The network is not reliable if ${level.contingency.label || constructionLineDisplayName(failedLine)} fails.`);
+    }
     return { valid: errors.length === 0, errors, orientation: winningOrientation };
   }
 
