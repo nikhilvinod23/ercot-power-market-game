@@ -3,7 +3,7 @@
 
   const PROGRESS_KEY = "power-market-solver-progress.v3";
   const THEME_KEY = "power-market-solver-theme.v1";
-  const CONSTRUCTION_INPUT_VERSION = 2;
+  const CONSTRUCTION_INPUT_VERSION = 3;
   const DAY_AHEAD_INPUT_VERSION = 7;
   const colors = {
     red: "#ff3b30",
@@ -521,16 +521,14 @@
       id: 7,
       title: "Level 7: Parallel corridors",
       demand: 80,
-      description: "Two distinct relay corridors and a second west-to-east path divide power across two loads. Each corridor has its own junction, so no two transmission lines share the same endpoints.",
+      description: "Parallel west-to-central corridors and a second west-to-east path divide power across two loads. Keep the parallel lines visually separate while preserving their shared endpoints.",
       nodes: [
         { id: "wind-1", type: "resource", name: "West wind", capacity: 35, offer: 5 },
         { id: "gas-1", type: "resource", name: "West gas", capacity: 35, offer: 25 },
         { id: "solar-1", type: "resource", name: "East solar", capacity: 25, offer: 12 },
-        { id: "west-1", type: "bus", name: "West hub", solutionPosition: { x: 300, y: 260 } },
-        { id: "upper-1", type: "bus", name: "Upper relay", solutionPosition: { x: 500, y: 135 } },
-        { id: "lower-1", type: "bus", name: "Lower relay", solutionPosition: { x: 500, y: 385 } },
-        { id: "central-1", type: "bus", name: "Central hub", solutionPosition: { x: 700, y: 260 } },
-        { id: "east-1", type: "bus", name: "East hub", solutionPosition: { x: 700, y: 430 } },
+        { id: "west-1", type: "bus", name: "West hub" },
+        { id: "central-1", type: "bus", name: "Central hub" },
+        { id: "east-1", type: "bus", name: "East hub" },
         { id: "north-1", type: "load", name: "North load", demand: 45 },
         { id: "south-1", type: "load", name: "South load", demand: 35 }
       ],
@@ -538,13 +536,11 @@
         { id: "line-1", name: "Wind to West", capacity: 40, flow: 30 },
         { id: "line-2", name: "Gas to West", capacity: 40, flow: 30 },
         { id: "line-3", name: "Solar to East", capacity: 30, flow: 20 },
-        { id: "line-4", name: "West to Upper", capacity: 30, flow: 25 },
-        { id: "line-5", name: "Upper to Central", capacity: 30, flow: 25 },
-        { id: "line-6", name: "West to Lower", capacity: 25, flow: 20 },
-        { id: "line-7", name: "Lower to Central", capacity: 25, flow: 20 },
-        { id: "line-8", name: "West to East", capacity: 20, flow: 15 },
-        { id: "line-9", name: "Central to North", capacity: 50, flow: 45 },
-        { id: "line-10", name: "East to South", capacity: 40, flow: 35 }
+        { id: "line-4", name: "West to Central", capacity: 30, flow: 25 },
+        { id: "line-5", name: "West to Central", capacity: 25, flow: 20 },
+        { id: "line-6", name: "West to East", capacity: 20, flow: 15 },
+        { id: "line-7", name: "Central to North", capacity: 50, flow: 45 },
+        { id: "line-8", name: "East to South", capacity: 40, flow: 35 }
       ]
     },
     {
@@ -2341,11 +2337,25 @@
     return staging;
   }
 
+  function constructionRenderedLineGeometry(line, positions) {
+    const geometry = constructionLineGeometry(line, positions);
+    if (!line.placed || !line.from || !line.to) return geometry;
+    const parallel = state.construction.lines.filter((candidate) => candidate.placed && ((candidate.from === line.from && candidate.to === line.to) || (candidate.from === line.to && candidate.to === line.from))).sort((a, b) => a.id.localeCompare(b.id));
+    if (parallel.length < 2) return geometry;
+    const index = parallel.findIndex((candidate) => candidate.id === line.id);
+    const offset = (index - (parallel.length - 1) / 2) * 18;
+    const dx = geometry.to.x - geometry.from.x;
+    const dy = geometry.to.y - geometry.from.y;
+    const distance = Math.hypot(dx, dy) || 1;
+    const perpendicular = { x: (-dy / distance) * offset, y: (dx / distance) * offset };
+    return { from: { x: geometry.from.x + perpendicular.x, y: geometry.from.y + perpendicular.y }, to: { x: geometry.to.x + perpendicular.x, y: geometry.to.y + perpendicular.y } };
+  }
+
   function updateConstructionGeometry() {
     const positions = constructionPositions();
     state.construction.lines.forEach((line) => {
       if (!line.inWorkspace) return;
-      const geometry = constructionLineGeometry(line, positions);
+      const geometry = constructionRenderedLineGeometry(line, positions);
       const from = geometry.from;
       const to = geometry.to;
       const group = els["construction-lines"].querySelector(`[data-construction-line="${line.id}"]`);
@@ -2373,7 +2383,7 @@
     syncConstructionViewBox();
     const positions = constructionPositions();
     els["construction-lines"].innerHTML = state.construction.lines.filter((line) => line.inWorkspace).map((line) => {
-      const geometry = constructionLineGeometry(line, positions);
+      const geometry = constructionRenderedLineGeometry(line, positions);
       const from = geometry.from;
       const to = geometry.to;
       const unplaced = !line.placed;
@@ -2480,25 +2490,13 @@
     const nearest = [...state.construction.nodes].sort((a, b) => Math.hypot(a.x - point.x, a.y - point.y) - Math.hypot(b.x - point.x, b.y - point.y)).slice(0, 2);
     const nearestDistance = nearest.length === 2 ? Math.max(...nearest.map((node) => Math.hypot(node.x - point.x, node.y - point.y))) : Infinity;
     if (nearest.length === 2 && nearestDistance < 220) {
-      const from = nearest[0].id;
-      const to = nearest[1].id;
-      if (constructionHasConnection(from, to, line.id)) {
-        line.from = null;
-        line.to = null;
-        line.placed = false;
-        line.x1 = Math.max(55, point.x - 130);
-        line.y1 = point.y;
-        line.x2 = Math.min(945, point.x + 130);
-        line.y2 = point.y;
-      } else {
-        line.from = from;
-        line.to = to;
-        line.placed = true;
-        line.x1 = null;
-        line.y1 = null;
-        line.x2 = null;
-        line.y2 = null;
-      }
+      line.from = nearest[0].id;
+      line.to = nearest[1].id;
+      line.placed = true;
+      line.x1 = null;
+      line.y1 = null;
+      line.x2 = null;
+      line.y2 = null;
     } else {
       line.from = null;
       line.to = null;
@@ -2512,12 +2510,8 @@
     state.construction.checked = false;
     state.construction.revealed = false;
     els["construction-feedback"].className = "network-feedback";
-    els["construction-feedback"].textContent = line.placed ? "Line placed with its preset flow and limit." : nearest.length === 2 && nearestDistance < 220 ? "That node pair already has a transmission line. Choose a different pair." : "Line placed. Add more nodes to connect it.";
+    els["construction-feedback"].textContent = line.placed ? "Line placed with its preset flow and limit." : "Line placed. Add more nodes to connect it.";
     renderConstructionView();
-  }
-
-  function constructionHasConnection(from, to, ignoredLineId = null) {
-    return state.construction.lines.some((line) => line.id !== ignoredLineId && line.placed && ((line.from === from && line.to === to) || (line.from === to && line.to === from)));
   }
 
   function returnConstructionPiece(kind, id) {
@@ -3417,7 +3411,7 @@
       } else if (lineGroup) {
         const line = state.construction.lines.find((candidate) => candidate.id === lineGroup.dataset.constructionLine);
         if (!line) return;
-        const geometry = constructionLineGeometry(line, constructionPositions());
+        const geometry = constructionRenderedLineGeometry(line, constructionPositions());
         const mapPoint = constructionMapPoint(event);
         state.construction.selected = `line:${line.id}`;
         state.construction.dragging = { kind: "line", id: line.id, pointerId: event.pointerId, moved: false, x: event.clientX, y: event.clientY, startMap: mapPoint, startGeometry: geometry, originalFrom: line.from, originalTo: line.to, wasPlaced: line.placed };
@@ -3469,29 +3463,13 @@
           const fromMatches = [...state.construction.nodes].sort((a, b) => Math.hypot(a.x - geometry.from.x, a.y - geometry.from.y) - Math.hypot(b.x - geometry.from.x, b.y - geometry.from.y));
           const toMatches = [...state.construction.nodes].filter((node) => node.id !== fromMatches[0]?.id).sort((a, b) => Math.hypot(a.x - geometry.to.x, a.y - geometry.to.y) - Math.hypot(b.x - geometry.to.x, b.y - geometry.to.y));
           if (fromMatches[0] && toMatches[0] && Math.hypot(fromMatches[0].x - geometry.from.x, fromMatches[0].y - geometry.from.y) < 220 && Math.hypot(toMatches[0].x - geometry.to.x, toMatches[0].y - geometry.to.y) < 220) {
-            const from = fromMatches[0].id;
-            const to = toMatches[0].id;
-            if (constructionHasConnection(from, to, line.id)) {
-              if (drag.wasPlaced) {
-                line.from = drag.originalFrom;
-                line.to = drag.originalTo;
-                line.placed = true;
-                line.x1 = null;
-                line.y1 = null;
-                line.x2 = null;
-                line.y2 = null;
-              }
-              els["construction-feedback"].className = "network-feedback is-error";
-              els["construction-feedback"].textContent = "That node pair already has a transmission line. Choose a different pair.";
-            } else {
-              line.from = from;
-              line.to = to;
-              line.placed = true;
-              line.x1 = null;
-              line.y1 = null;
-              line.x2 = null;
-              line.y2 = null;
-            }
+            line.from = fromMatches[0].id;
+            line.to = toMatches[0].id;
+            line.placed = true;
+            line.x1 = null;
+            line.y1 = null;
+            line.x2 = null;
+            line.y2 = null;
           }
         }
       } else if (drag.kind === "line") {
