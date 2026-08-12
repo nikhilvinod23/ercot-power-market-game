@@ -2468,13 +2468,25 @@
     const nearest = [...state.construction.nodes].sort((a, b) => Math.hypot(a.x - point.x, a.y - point.y) - Math.hypot(b.x - point.x, b.y - point.y)).slice(0, 2);
     const nearestDistance = nearest.length === 2 ? Math.max(...nearest.map((node) => Math.hypot(node.x - point.x, node.y - point.y))) : Infinity;
     if (nearest.length === 2 && nearestDistance < 220) {
-      line.from = nearest[0].id;
-      line.to = nearest[1].id;
-      line.placed = true;
-      line.x1 = null;
-      line.y1 = null;
-      line.x2 = null;
-      line.y2 = null;
+      const from = nearest[0].id;
+      const to = nearest[1].id;
+      if (constructionHasConnection(from, to, line.id)) {
+        line.from = null;
+        line.to = null;
+        line.placed = false;
+        line.x1 = Math.max(55, point.x - 130);
+        line.y1 = point.y;
+        line.x2 = Math.min(945, point.x + 130);
+        line.y2 = point.y;
+      } else {
+        line.from = from;
+        line.to = to;
+        line.placed = true;
+        line.x1 = null;
+        line.y1 = null;
+        line.x2 = null;
+        line.y2 = null;
+      }
     } else {
       line.from = null;
       line.to = null;
@@ -2488,7 +2500,45 @@
     state.construction.checked = false;
     state.construction.revealed = false;
     els["construction-feedback"].className = "network-feedback";
-    els["construction-feedback"].textContent = line.placed ? "Line placed with its preset flow and limit." : "Line placed. Add more nodes to connect it.";
+    els["construction-feedback"].textContent = line.placed ? "Line placed with its preset flow and limit." : nearest.length === 2 && nearestDistance < 220 ? "That node pair already has a transmission line. Choose a different pair." : "Line placed. Add more nodes to connect it.";
+    renderConstructionView();
+  }
+
+  function constructionHasConnection(from, to, ignoredLineId = null) {
+    return state.construction.lines.some((line) => line.id !== ignoredLineId && line.placed && ((line.from === from && line.to === to) || (line.from === to && line.to === from)));
+  }
+
+  function returnConstructionPiece(kind, id) {
+    const line = kind === "line" ? state.construction.lines.find((candidate) => candidate.id === id) : null;
+    if (kind === "node") {
+      state.construction.nodes = state.construction.nodes.filter((node) => node.id !== id);
+      state.construction.lines.forEach((candidate) => {
+        if (candidate.from === id || candidate.to === id) {
+          candidate.from = null;
+          candidate.to = null;
+          candidate.placed = false;
+          candidate.inWorkspace = false;
+          candidate.x1 = null;
+          candidate.y1 = null;
+          candidate.x2 = null;
+          candidate.y2 = null;
+        }
+      });
+    } else if (line) {
+      line.from = null;
+      line.to = null;
+      line.placed = false;
+      line.inWorkspace = false;
+      line.x1 = null;
+      line.y1 = null;
+      line.x2 = null;
+      line.y2 = null;
+    } else return;
+    state.construction.selected = null;
+    state.construction.checked = false;
+    state.construction.revealed = false;
+    els["construction-feedback"].className = "network-feedback";
+    els["construction-feedback"].textContent = "Piece returned to the starting box.";
     renderConstructionView();
   }
 
@@ -3343,6 +3393,11 @@
     els["construction-map"].addEventListener("pointerdown", (event) => {
       const nodeGroup = event.target.closest("[data-construction-node]");
       const lineGroup = event.target.closest("[data-construction-line]");
+      if (event.button === 2 && (nodeGroup || lineGroup)) {
+        event.preventDefault();
+        returnConstructionPiece(nodeGroup ? "node" : "line", nodeGroup?.dataset.constructionNode || lineGroup?.dataset.constructionLine);
+        return;
+      }
       if (nodeGroup) {
         state.construction.selected = `node:${nodeGroup.dataset.constructionNode}`;
         state.construction.dragging = { kind: "node", id: nodeGroup.dataset.constructionNode, pointerId: event.pointerId, moved: false, x: event.clientX, y: event.clientY };
@@ -3402,13 +3457,29 @@
           const fromMatches = [...state.construction.nodes].sort((a, b) => Math.hypot(a.x - geometry.from.x, a.y - geometry.from.y) - Math.hypot(b.x - geometry.from.x, b.y - geometry.from.y));
           const toMatches = [...state.construction.nodes].filter((node) => node.id !== fromMatches[0]?.id).sort((a, b) => Math.hypot(a.x - geometry.to.x, a.y - geometry.to.y) - Math.hypot(b.x - geometry.to.x, b.y - geometry.to.y));
           if (fromMatches[0] && toMatches[0] && Math.hypot(fromMatches[0].x - geometry.from.x, fromMatches[0].y - geometry.from.y) < 220 && Math.hypot(toMatches[0].x - geometry.to.x, toMatches[0].y - geometry.to.y) < 220) {
-            line.from = fromMatches[0].id;
-            line.to = toMatches[0].id;
-            line.placed = true;
-            line.x1 = null;
-            line.y1 = null;
-            line.x2 = null;
-            line.y2 = null;
+            const from = fromMatches[0].id;
+            const to = toMatches[0].id;
+            if (constructionHasConnection(from, to, line.id)) {
+              if (drag.wasPlaced) {
+                line.from = drag.originalFrom;
+                line.to = drag.originalTo;
+                line.placed = true;
+                line.x1 = null;
+                line.y1 = null;
+                line.x2 = null;
+                line.y2 = null;
+              }
+              els["construction-feedback"].className = "network-feedback is-error";
+              els["construction-feedback"].textContent = "That node pair already has a transmission line. Choose a different pair.";
+            } else {
+              line.from = from;
+              line.to = to;
+              line.placed = true;
+              line.x1 = null;
+              line.y1 = null;
+              line.x2 = null;
+              line.y2 = null;
+            }
           }
         }
       } else if (drag.kind === "line") {
@@ -3449,6 +3520,13 @@
       state.construction.selected = `line:${lineGroup.dataset.constructionLine}`;
       renderConstructionView();
     });
+    els["construction-map"].addEventListener("contextmenu", (event) => {
+      const nodeGroup = event.target.closest("[data-construction-node]");
+      const lineGroup = event.target.closest("[data-construction-line]");
+      if (!nodeGroup && !lineGroup) return;
+      event.preventDefault();
+      returnConstructionPiece(nodeGroup ? "node" : "line", nodeGroup?.dataset.constructionNode || lineGroup?.dataset.constructionLine);
+    });
     els["construction-inspector"].addEventListener("click", (event) => {
       const action = event.target.dataset.constructionAction;
       if (!action) return;
@@ -3458,25 +3536,7 @@
       }
       const [, operation, kind, id] = action.match(/^(return):(node|line):(.+)$/) || [];
       if (!operation) return;
-      const line = kind === "line" ? state.construction.lines.find((candidate) => candidate.id === id) : null;
-      if (kind === "node") {
-        state.construction.nodes = state.construction.nodes.filter((node) => node.id !== id);
-        state.construction.lines.forEach((candidate) => { if (candidate.from === id || candidate.to === id) { candidate.from = null; candidate.to = null; candidate.placed = false; candidate.inWorkspace = false; candidate.x1 = null; candidate.y1 = null; candidate.x2 = null; candidate.y2 = null; } });
-      } else if (line) {
-        line.from = null;
-        line.to = null;
-        line.placed = false;
-        line.inWorkspace = false;
-        line.x1 = null;
-        line.y1 = null;
-        line.x2 = null;
-        line.y2 = null;
-      }
-      state.construction.selected = null;
-      state.construction.checked = false;
-      els["construction-feedback"].className = "network-feedback";
-      els["construction-feedback"].textContent = "Piece returned to the starting box.";
-      renderConstructionView();
+      returnConstructionPiece(kind, id);
     });
     els["back-button"].addEventListener("click", () => renderLevelSelect());
     els["reset-level-button"].addEventListener("click", resetLevel);
