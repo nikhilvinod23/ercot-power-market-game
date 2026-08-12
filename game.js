@@ -4,7 +4,7 @@
   const PROGRESS_KEY = "power-market-solver-progress.v3";
   const THEME_KEY = "power-market-solver-theme.v1";
   const CONSTRUCTION_INPUT_VERSION = 4;
-  const DAY_AHEAD_INPUT_VERSION = 11;
+  const DAY_AHEAD_INPUT_VERSION = 12;
   const colors = {
     red: "#ff3b30",
     yellow: "#ffd60a",
@@ -789,9 +789,9 @@
       evForecast: {
         demand: [{ value: 90, probability: 0.5 }, { value: 110, probability: 0.5 }],
         resources: {
-          wind: { label: "Wind availability", outcomes: [{ value: 30, probability: 0.5 }, { value: 40, probability: 0.5 }] },
-          solar: { label: "Solar availability", outcomes: [{ value: 20, probability: 0.5 }, { value: 30, probability: 0.5 }] },
-          gas: { label: "Gas availability", outcomes: [{ value: 35, probability: 0.5 }, { value: 45, probability: 0.5 }] }
+          wind: { label: "Wind availability", outcomes: [{ value: 30, probability: 0.5 }, { value: 35, probability: 0.5 }] },
+          solar: { label: "Solar availability", outcomes: [{ value: 20, probability: 0.5 }, { value: 25, probability: 0.5 }] },
+          gas: { label: "Gas availability (firm)", outcomes: [{ value: 50, probability: 1 }] }
         }
       },
       challenge: "Challenge: meet the economic demand target without committing the $100/MWh peaker.",
@@ -821,10 +821,10 @@
           east: [{ value: 55, probability: 0.5 }, { value: 75, probability: 0.5 }]
         },
         resources: {
-          westWind: { label: "West wind availability", outcomes: [{ value: 30, probability: 0.5 }, { value: 40, probability: 0.5 }] },
-          westGas: { label: "West gas availability", outcomes: [{ value: 15, probability: 0.5 }, { value: 25, probability: 0.5 }] },
-          eastBattery: { label: "East battery availability", outcomes: [{ value: 15, probability: 0.5 }, { value: 25, probability: 0.5 }] },
-          eastGas: { label: "East gas availability", outcomes: [{ value: 20, probability: 0.5 }, { value: 30, probability: 0.5 }] }
+          westWind: { label: "West wind availability", outcomes: [{ value: 30, probability: 0.5 }, { value: 35, probability: 0.5 }] },
+          westGas: { label: "West gas availability (firm)", outcomes: [{ value: 30, probability: 1 }] },
+          eastBattery: { label: "East battery availability (firm)", outcomes: [{ value: 20, probability: 1 }] },
+          eastGas: { label: "East gas availability (firm)", outcomes: [{ value: 60, probability: 1 }] }
         }
       },
       challenge: "Challenge: serve both zonal loads while using the full 20 MW interface and respecting each resource's rising offer curve.",
@@ -854,8 +854,8 @@
         demand: [{ value: 100, probability: 0.5 }, { value: 120, probability: 0.5 }],
         resources: {
           wind: { label: "Wind availability", outcomes: [{ value: 30, probability: 0.5 }, { value: 40, probability: 0.5 }] },
-          gas: { label: "Gas availability", outcomes: [{ value: 50, probability: 0.5 }, { value: 70, probability: 0.5 }] },
-          hydro: { label: "Hydro availability", outcomes: [{ value: 30, probability: 0.5 }, { value: 50, probability: 0.5 }] }
+          gas: { label: "Gas availability (firm)", outcomes: [{ value: 60, probability: 1 }] },
+          hydro: { label: "Hydro availability", outcomes: [{ value: 30, probability: 0.5 }, { value: 40, probability: 0.5 }] }
         }
       },
       challenge: "Challenge: commit enough capacity for the peak and place 15 MW of reserve without starting the peaker.",
@@ -890,8 +890,8 @@
         },
         resources: {
           westWind: { label: "West wind availability", outcomes: [{ value: 30, probability: 0.5 }, { value: 40, probability: 0.5 }] },
-          westGas: { label: "West gas availability", outcomes: [{ value: 25, probability: 0.5 }, { value: 35, probability: 0.5 }] },
-          eastGas: { label: "East gas availability", outcomes: [{ value: 50, probability: 0.5 }, { value: 70, probability: 0.5 }] }
+          westGas: { label: "West gas availability (firm)", outcomes: [{ value: 40, probability: 1 }] },
+          eastGas: { label: "East gas availability (firm)", outcomes: [{ value: 60, probability: 1 }] }
         }
       },
       challenge: "Challenge: keep the east load supplied, reserve 20 MW, and avoid starting the peaker while respecting the 15 MW interface.",
@@ -933,9 +933,9 @@
         },
         resources: {
           westWind: { label: "West wind availability", outcomes: [{ value: 40, probability: 0.5 }, { value: 50, probability: 0.5 }] },
-          westGas: { label: "West gas availability", outcomes: [{ value: 40, probability: 0.5 }, { value: 50, probability: 0.5 }] },
-          eastSolar: { label: "East solar availability", outcomes: [{ value: 25, probability: 0.5 }, { value: 35, probability: 0.5 }] },
-          eastGas: { label: "East gas availability", outcomes: [{ value: 60, probability: 0.5 }, { value: 80, probability: 0.5 }] }
+          westGas: { label: "West gas availability (firm)", outcomes: [{ value: 50, probability: 1 }] },
+          eastSolar: { label: "East solar availability", outcomes: [{ value: 25, probability: 0.5 }, { value: 30, probability: 0.5 }] },
+          eastGas: { label: "East gas availability (firm)", outcomes: [{ value: 70, probability: 1 }] }
         }
       },
       resources: [
@@ -2281,7 +2281,7 @@
       const windRows = windForecast.map((entry) => `<span>${Number(entry.strength).toFixed(0)} MW wind</span><strong>${Math.round(Number(entry.probability) * 100)}%</strong>`).join("");
       const demandRows = demandForecast.map((entry) => `<span>${Number(entry.demand).toFixed(0)} MW demand</span><strong>${Math.round(Number(entry.probability) * 100)}%</strong>`).join("");
       forecast.hidden = false;
-      forecast.innerHTML = `<strong class="day-ahead-forecast-title">Probability forecast</strong><span class="day-ahead-forecast-note">Review the possible wind and demand outcomes before choosing a schedule.</span><div class="day-ahead-forecast-columns"><div><span class="day-ahead-forecast-label">Wind strength</span>${windRows}</div><div><span class="day-ahead-forecast-label">Load demand</span>${demandRows}</div></div>`;
+      forecast.innerHTML = `<strong class="day-ahead-forecast-title">Probability forecast</strong><span class="day-ahead-forecast-note">Review the possible wind and demand outcomes before choosing a schedule. Gas and the peaker are firm at their listed capacities.</span><div class="day-ahead-forecast-columns"><div><span class="day-ahead-forecast-label">Wind strength</span>${windRows}</div><div><span class="day-ahead-forecast-label">Load demand</span>${demandRows}</div></div>`;
       return;
     }
     if (!level.evForecast) {
@@ -2298,7 +2298,7 @@
     const demandMarkup = [...hourEntries, ...demandEntries].map((entry) => `<div class="day-ahead-forecast-row"><span>${entry.label}</span><span>${outcomeRows(entry.outcomes)}</span></div>`).join("");
     const resourceMarkup = resourceEntries.map((entry) => `<div class="day-ahead-forecast-row"><span>${entry.label}</span><span>${outcomeRows(entry.outcomes)}</span></div>`).join("");
     forecast.hidden = false;
-    forecast.innerHTML = `<strong class="day-ahead-forecast-title">Probability forecast</strong><span class="day-ahead-forecast-note">Review each possible demand and availability outcome before calculating the schedule.</span><div class="day-ahead-forecast-columns"><div><span class="day-ahead-forecast-label">Demand forecast</span>${demandMarkup}</div><div><span class="day-ahead-forecast-label">Supply availability forecast</span>${resourceMarkup}</div></div>`;
+    forecast.innerHTML = `<strong class="day-ahead-forecast-title">Probability forecast</strong><span class="day-ahead-forecast-note">Review renewable availability and demand outcomes before calculating the schedule. Gas, storage, and peaker capacity are firm.</span><div class="day-ahead-forecast-columns"><div><span class="day-ahead-forecast-label">Demand forecast</span>${demandMarkup}</div><div><span class="day-ahead-forecast-label">Supply availability forecast</span>${resourceMarkup}</div></div>`;
   }
 
   function resetDayAheadLevel() {
