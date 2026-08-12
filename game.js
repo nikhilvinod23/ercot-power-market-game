@@ -4,7 +4,7 @@
   const PROGRESS_KEY = "power-market-solver-progress.v3";
   const THEME_KEY = "power-market-solver-theme.v1";
   const CONSTRUCTION_INPUT_VERSION = 4;
-  const DAY_AHEAD_INPUT_VERSION = 7;
+  const DAY_AHEAD_INPUT_VERSION = 8;
   const colors = {
     red: "#ff3b30",
     yellow: "#ffd60a",
@@ -759,12 +759,14 @@
     {
       id: 5,
       title: "Level 5: Forecast risk",
-      theme: "Expected-value hedge",
+      theme: "Expected-value dispatch",
       controlMode: "forecastHedge",
-      demand: 120,
-      loadLabel: "120 MW day-ahead forecast",
-      defaultDispatch: { wind: 20, gas: 80, peaker: 20 },
-      description: "Use the probability forecast for wind and demand to hedge real-time exposure. Hint: compare each schedule with an expected-value (EV) calculation.",
+      demand: 130,
+      loadLabel: "130 MW expected demand (120/140 MW forecast)",
+      expectedWind: 28,
+      expectedNetDemand: 102,
+      defaultDispatch: { wind: 28, gas: 80, peaker: 22 },
+      description: "Use the probability forecast to calculate expected wind and expected demand, then schedule the expected net demand. Compare that EV schedule with the four possible real-time outcomes.",
       windForecast: [{ strength: 20, probability: 0.6 }, { strength: 40, probability: 0.4 }],
       demandForecast: [{ demand: 120, probability: 0.5 }, { demand: 140, probability: 0.5 }],
       hedgeOffer: 120,
@@ -774,7 +776,7 @@
         { id: "gas", name: "Gas unit", capacity: 80, offer: 30, className: "gas", actualCapacity: 80 },
         { id: "peaker", name: "Hedge peaker", capacity: 50, offer: 95, className: "peaker", actualCapacity: 50, startupCost: 400 }
       ],
-      expectedAwards: { wind: 20, gas: 80, peaker: 20 }
+      expectedAwards: { wind: 28, gas: 80, peaker: 22 }
     },
     {
       id: 6,
@@ -805,7 +807,7 @@
       networkLabel: "20 MW (West → East)",
       defaultDispatch: { westWind: 35, westGas: 20, eastBattery: 20, eastGas: 25 },
       description: "Continuous supply curves are split across two buses. The interface limit forces the east bus to use its own marginal supply.",
-      challenge: "Challenge: serve both zonal loads while using the full 20 MW interface and preserving the demand curve value.",
+      challenge: "Challenge: serve both zonal loads while using the full 20 MW interface and respecting each resource's rising offer curve.",
       resources: [
         { id: "westWind", name: "West wind", capacity: 35, offer: 0, className: "wind", zone: "west", offerCurve: [{ mw: 0, price: 0 }, { mw: 35, price: 0 }] },
         { id: "westGas", name: "West gas", capacity: 30, offer: 25, className: "gas", zone: "west", offerCurve: [{ mw: 0, price: 20 }, { mw: 20, price: 25 }, { mw: 30, price: 40 }] },
@@ -1400,7 +1402,7 @@
       state.dayAheadStatuses = new Map(dayAheadEntries.filter(([id, status]) => dayAheadLevels.some((level) => level.id === Number(id)) && ["yellow", "green"].includes(status)).map(([id, status]) => [Number(id), status]));
       state.dayAheadOffers = saved && typeof saved === "object" && saved.dayAheadOffers && typeof saved.dayAheadOffers === "object" ? saved.dayAheadOffers : {};
       if (Number(saved.dayAheadOfferVersion) !== DAY_AHEAD_INPUT_VERSION) {
-        const existingIds = dayAheadLevels.filter((level) => level.id <= 5).map((level) => level.id);
+        const existingIds = dayAheadLevels.filter((level) => level.id < 5).map((level) => level.id);
         state.dayAheadStatuses = new Map(existingIds.filter((id) => state.dayAheadStatuses.has(id)).map((id) => [id, state.dayAheadStatuses.get(id)]));
         state.dayAheadOffers = {};
       }
@@ -1950,18 +1952,12 @@
   }
 
   function solveOptimalForecastHedge(level) {
-    let best = null;
-    const resources = level.resources;
-    for (let wind = 0; wind <= resources[0].capacity; wind += 1) {
-      for (let gas = 0; gas <= resources[1].capacity; gas += 1) {
-        const peaker = level.demand - wind - gas;
-        if (peaker < 0 || peaker > resources[2].capacity) continue;
-        const result = evaluateForecastHedge(level, { wind, gas, peaker });
-        if (!result.feasible) continue;
-        if (!best || result.expectedTotalCost < best.expectedTotalCost - 0.01) best = result;
-      }
-    }
-    return best;
+    // This lesson is explicitly about expected values, not searching for a
+    // risk-adjusted hedge. The forecast determines the schedule: weighted
+    // wind availability plus weighted demand, with the residual supplied by
+    // the next resources in merit order.
+    const expectedAwards = level.expectedAwards || level.defaultDispatch;
+    return expectedAwards ? evaluateForecastHedge(level, expectedAwards) : null;
   }
 
   function clearDayAhead(level, values) {
@@ -2051,7 +2047,7 @@
         return;
       }
       const scenarioRows = state.dayAheadResult.scenarioResults.map((scenario) => `<span>${scenario.name} (${Math.round(scenario.probability * 100)}%)</span><span>${scenario.shortfall.toFixed(0)} MW shortfall · ${scenario.hedged.toFixed(0)} MW hedged</span>`).join("");
-      renderDayAheadResult(`<strong>Expected-value hedge</strong><span>Expected balancing cost includes the premium for uncovered real-time energy.</span><div class="day-ahead-result-grid">${awardRows}${scenarioRows}<span>Day-ahead cost</span><span>$${state.dayAheadResult.dayAheadCost.toFixed(0)}</span><span>Expected real-time cost</span><span>$${state.dayAheadResult.expectedBalancingCost.toFixed(0)}</span><span>Expected total cost</span><span>$${state.dayAheadResult.expectedTotalCost.toFixed(0)}</span></div>`, "");
+      renderDayAheadResult(`<strong>Expected-value schedule</strong><span>Compare each forecast outcome with the EV dispatch and its balancing exposure.</span><div class="day-ahead-result-grid">${awardRows}${scenarioRows}<span>Day-ahead cost</span><span>$${state.dayAheadResult.dayAheadCost.toFixed(0)}</span><span>Expected real-time cost</span><span>$${state.dayAheadResult.expectedBalancingCost.toFixed(0)}</span><span>Expected total cost</span><span>$${state.dayAheadResult.expectedTotalCost.toFixed(0)}</span></div>`, "");
       return;
     }
     if (level.controlMode === "forecast") {
@@ -2108,8 +2104,8 @@
     state.dayAheadStatuses.set(level.id, status);
     saveProgress();
     renderDayAheadNavigation();
-    const successMessage = level.controlMode === "forecastHedge" ? "<strong>Perfect hedge</strong><span>This schedule minimizes expected day-ahead plus real-time balancing cost.</span>" : "<strong>Perfect schedule</strong><span>The marginal accepted offer is the DAM LMP.</span>";
-    const partialMessage = level.controlMode === "forecastHedge" ? "<strong>Valid hedge, but not optimal</strong><span>The schedule serves the forecast, but its expected balancing cost is not minimized.</span>" : "<strong>Valid schedule, but not optimal</strong><span>The load is served, but the awards differ from the least-cost schedule.</span>";
+    const successMessage = level.controlMode === "forecastHedge" ? "<strong>Perfect EV schedule</strong><span>The dispatch matches the weighted expected wind and demand values, with the residual supplied in merit order.</span>" : "<strong>Perfect schedule</strong><span>The marginal accepted offer is the DAM LMP.</span>";
+    const partialMessage = level.controlMode === "forecastHedge" ? "<strong>Valid forecast schedule, but not the EV target</strong><span>The schedule serves the day-ahead requirement, but it does not match the weighted expected values.</span>" : "<strong>Valid schedule, but not optimal</strong><span>The load is served, but the awards differ from the least-cost schedule.</span>";
     renderDayAheadResult(perfect ? successMessage : partialMessage, perfect ? "is-correct" : "is-close");
   }
 
@@ -2172,10 +2168,14 @@
       forecast.innerHTML = "";
       return;
     }
-    const windRows = (level.windForecast || []).map((entry) => `<span>${Number(entry.strength).toFixed(0)} MW wind</span><strong>${Math.round(Number(entry.probability) * 100)}%</strong>`).join("");
-    const demandRows = (level.demandForecast || []).map((entry) => `<span>${Number(entry.demand).toFixed(0)} MW demand</span><strong>${Math.round(Number(entry.probability) * 100)}%</strong>`).join("");
+    const windForecast = level.windForecast || [];
+    const demandForecast = level.demandForecast || [];
+    const expectedWind = windForecast.reduce((sum, entry) => sum + Number(entry.strength) * Number(entry.probability), 0);
+    const expectedDemand = demandForecast.reduce((sum, entry) => sum + Number(entry.demand) * Number(entry.probability), 0);
+    const windRows = windForecast.map((entry) => `<span>${Number(entry.strength).toFixed(0)} MW wind</span><strong>${Math.round(Number(entry.probability) * 100)}%</strong>`).join("");
+    const demandRows = demandForecast.map((entry) => `<span>${Number(entry.demand).toFixed(0)} MW demand</span><strong>${Math.round(Number(entry.probability) * 100)}%</strong>`).join("");
     forecast.hidden = false;
-    forecast.innerHTML = `<strong class="day-ahead-forecast-title">Probability forecast</strong><span class="day-ahead-forecast-note">Wind and demand outcomes are independent. Use probability × cost for each outcome combination.</span><div class="day-ahead-forecast-columns"><div><span class="day-ahead-forecast-label">Wind strength</span>${windRows}</div><div><span class="day-ahead-forecast-label">Load demand</span>${demandRows}</div></div>`;
+    forecast.innerHTML = `<strong class="day-ahead-forecast-title">Probability forecast</strong><span class="day-ahead-forecast-note">Wind and demand outcomes are independent. Use probability × cost for each outcome combination.</span><div class="day-ahead-forecast-columns"><div><span class="day-ahead-forecast-label">Wind strength</span>${windRows}</div><div><span class="day-ahead-forecast-label">Load demand</span>${demandRows}</div></div><span class="day-ahead-forecast-expected">Expected values: ${expectedWind.toFixed(0)} MW wind · ${expectedDemand.toFixed(0)} MW demand · ${(expectedDemand - expectedWind).toFixed(0)} MW net demand</span>`;
   }
 
   function resetDayAheadLevel() {
