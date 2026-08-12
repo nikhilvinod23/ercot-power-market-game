@@ -75,36 +75,41 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--blue); outl
 .day-ahead-requirement-box { display: grid; gap: 4px; min-height: 48px; padding: 9px 11px; background: var(--surface); box-shadow: 0 3px 12px var(--shadow); text-align: left; }
 .day-ahead-requirement-box span { color: var(--muted); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
 .day-ahead-requirement-box strong { color: var(--ink); font-size: 0.84rem; }
-.day-ahead-forecast { display: grid; gap: 8px; max-width: 760px; margin: 0 auto 15px; padding: 11px 13px; background: var(--surface); box-shadow: 0 3px 12px var(--shadow); color: var(--ink); }
+.day-ahead-forecast { display: grid; gap: 8px; max-width: 760px; min-width: 0; margin: 0 auto 15px; padding: 11px 13px; overflow: hidden; background: var(--surface); box-shadow: 0 3px 12px var(--shadow); color: var(--ink); }
 .day-ahead-forecast-title { font-size: 0.8rem; letter-spacing: 0.04em; text-transform: uppercase; }
 .day-ahead-forecast-note { color: var(--muted); font-size: 0.75rem; line-height: 1.35; }
 .day-ahead-forecast-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.day-ahead-forecast-columns > div { display: grid; grid-template-columns: 1fr auto; gap: 5px 12px; align-items: center; font-size: 0.78rem; }
-.day-ahead-forecast-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(92px, auto) auto; gap: 5px 8px; align-items: center; font-size: 0.72rem; }
-.day-ahead-forecast-row > span:nth-child(2) { display: flex; gap: 4px; color: var(--muted); }
+.day-ahead-forecast-columns > div { display: grid; gap: 5px; min-width: 0; align-content: start; font-size: 0.78rem; }
+.day-ahead-forecast-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, auto); gap: 5px 8px; min-width: 0; align-items: center; font-size: 0.72rem; }
+.day-ahead-forecast-row > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.day-ahead-forecast-row > span:nth-child(2) { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; min-width: 0; color: var(--muted); }
 .day-ahead-forecast-row > span:nth-child(2) span { white-space: nowrap; }
 .day-ahead-forecast-row > span:nth-child(2) strong { color: var(--accent); }
-.day-ahead-forecast-row > strong { white-space: nowrap; color: var(--ink); font-size: 0.72rem; }
 .day-ahead-forecast-expected { padding-top: 5px; color: var(--ink); font-size: 0.76rem; font-weight: 800; }
 .day-ahead-forecast-label { grid-column: 1 / -1; color: var(--muted); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
 .day-ahead-forecast-columns strong { color: var(--accent); }
 @media (max-width: 760px) { .day-ahead-summary { grid-template-columns: repeat(2, minmax(130px, 1fr)); } }
 .day-ahead-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: stretch; }
-.day-ahead-panel { min-width: 0; padding: 16px; background: var(--surface); box-shadow: 0 8px 24px var(--shadow); }
+.day-ahead-panel { min-width: 0; overflow: hidden; padding: 16px; background: var(--surface); box-shadow: 0 8px 24px var(--shadow); }
 .day-ahead-panel h3 { margin: 0 0 6px; font-size: 1.05rem; }
 .day-ahead-panel-note { margin: 0 0 12px; color: var(--muted); font-size: 0.76rem; line-height: 1.4; }
 .day-ahead-offers { display: grid; gap: 10px; }
-.day-ahead-offer { display: grid; grid-template-columns: minmax(170px, 1fr) minmax(0, 1.15fr); gap: 12px; align-items: center; padding: 12px; background: var(--input-bg); }
-.day-ahead-offer-info { display: grid; gap: 3px; }
+.day-ahead-offer { display: grid; grid-template-columns: minmax(170px, 1fr) minmax(0, 1.15fr); gap: 12px; min-width: 0; overflow: hidden; align-items: center; padding: 12px; background: var(--input-bg); }
+.day-ahead-offer-info { display: grid; gap: 3px; min-width: 0; overflow: hidden; }
 .day-ahead-offer-info strong { font-size: 0.86rem; }
 .day-ahead-offer-info span { color: var(--muted); font-size: 0.74rem; }
 .day-ahead-offer-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin-top: 4px; }
 .day-ahead-offer-metrics span { display: grid; gap: 2px; min-width: 0; padding: 5px 6px; background: var(--surface); }
 .day-ahead-offer-metrics small { color: var(--muted); font-size: 0.61rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
 .day-ahead-offer-metrics b { overflow: hidden; color: var(--ink); font-size: 0.72rem; text-overflow: ellipsis; white-space: nowrap; }
-.day-ahead-curve { display: block; width: 100%; max-width: 190px; height: 48px; margin-top: 3px; }
+.day-ahead-curve { display: block; width: 100%; max-width: 270px; height: 108px; margin-top: 5px; overflow: visible; }
 .day-ahead-curve-axis { stroke: var(--muted); stroke-width: 1; }
 .day-ahead-curve-line { fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.day-ahead-curve-point-label { fill: var(--ink); font-size: 8.5px; font-weight: 700; pointer-events: none; paint-order: stroke; stroke: var(--input-bg); stroke-width: 2px; stroke-linejoin: round; }
+.day-ahead-curve-axis-label { fill: var(--muted); font-size: 8.5px; font-weight: 700; pointer-events: none; }
+.day-ahead-curve-trace-line { stroke: var(--accent, var(--orange)); stroke-width: 1.25; stroke-dasharray: 3 3; pointer-events: none; }
+.day-ahead-curve-trace-point { fill: var(--accent, var(--orange)); stroke: var(--input-bg); stroke-width: 1.5; pointer-events: none; }
+.day-ahead-curve-trace-label { fill: var(--ink); font-size: 9px; font-weight: 800; pointer-events: none; paint-order: stroke; stroke: var(--input-bg); stroke-width: 3px; stroke-linejoin: round; }
 .day-ahead-curve-line.wind { stroke: var(--blue); }
 .day-ahead-curve-line.solar { stroke: #d39e00; }
 .day-ahead-curve-line.gas { stroke: var(--purple); }
@@ -149,7 +154,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--blue); outl
 .day-ahead-stack-axis { display: flex; justify-content: space-between; margin: 3px 0 15px 94px; color: var(--muted); font-size: 0.68rem; }
 .day-ahead-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
 .day-ahead-actions .check-button, .day-ahead-actions .reveal-button { padding: 10px 14px; font-size: 0.78rem; }
-.day-ahead-result { display: grid; gap: 5px; min-height: 116px; margin-top: 14px; padding: 12px; background: var(--input-bg); color: var(--ink); font-size: 0.78rem; line-height: 1.4; }
+.day-ahead-result { display: grid; gap: 5px; min-width: 0; min-height: 116px; margin-top: 14px; padding: 12px; overflow: hidden; background: var(--input-bg); color: var(--ink); font-size: 0.78rem; line-height: 1.4; }
 .day-ahead-result strong { font-size: 1.1rem; }
 .day-ahead-result.is-correct { color: #16833a; }
 .day-ahead-result.is-close { color: #926900; }
@@ -163,12 +168,6 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--blue); outl
 .day-ahead-calculation-table th { color: var(--muted); font-size: 0.61rem; letter-spacing: 0.03em; text-transform: uppercase; }
 .day-ahead-calculation-table td { background: var(--surface); }
 .day-ahead-calculation-table .day-ahead-calculation-total td { background: var(--input-bg); font-weight: 800; }
-.day-ahead-ev-summary { display: grid; gap: 6px; margin: 3px 0; padding: 9px; background: var(--surface); color: var(--ink); }
-.day-ahead-ev-summary > strong { font-size: 0.78rem; }
-.day-ahead-ev-table { width: 100%; border-collapse: collapse; font-size: 0.67rem; }
-.day-ahead-ev-table th, .day-ahead-ev-table td { padding: 5px 6px; border-bottom: 1px solid var(--shadow); text-align: left; }
-.day-ahead-ev-table th { color: var(--muted); font-size: 0.6rem; letter-spacing: 0.03em; text-transform: uppercase; }
-.day-ahead-ev-table td:last-child, .day-ahead-ev-table th:last-child { text-align: right; white-space: nowrap; }
 .day-ahead-navigation { display: flex; justify-content: space-between; gap: 12px; margin-top: 18px; }
 .construction-screen { padding-bottom: 40px; }
 .construction-instruction { margin: 16px 0; color: var(--muted); font-size: 0.9rem; text-align: center; }
