@@ -4,7 +4,7 @@
   const PROGRESS_KEY = "power-market-solver-progress.v3";
   const THEME_KEY = "power-market-solver-theme.v1";
   const CONSTRUCTION_INPUT_VERSION = 4;
-  const DAY_AHEAD_INPUT_VERSION = 8;
+  const DAY_AHEAD_INPUT_VERSION = 9;
   const colors = {
     red: "#ff3b30",
     yellow: "#ffd60a",
@@ -785,7 +785,15 @@
       controlMode: "dispatch",
       demand: 100,
       defaultDispatch: { wind: 35, solar: 25, gas: 40, peaker: 0 },
-      description: "Continuous price curves replace one-step offers. Low-cost blocks are accepted first, then marginal costs rise as each unit is pushed past its first segment.",
+      description: "Continuous price curves replace one-step offers. Calculate the expected demand and availability first, then account for overlapping curves as each unit is pushed past its first segment.",
+      evForecast: {
+        demand: [{ value: 90, probability: 0.5 }, { value: 110, probability: 0.5 }],
+        resources: {
+          wind: { label: "Wind availability", outcomes: [{ value: 30, probability: 0.5 }, { value: 40, probability: 0.5 }] },
+          solar: { label: "Solar availability", outcomes: [{ value: 20, probability: 0.5 }, { value: 30, probability: 0.5 }] },
+          gas: { label: "Gas availability", outcomes: [{ value: 35, probability: 0.5 }, { value: 45, probability: 0.5 }] }
+        }
+      },
       challenge: "Challenge: meet the economic demand target without committing the $100/MWh peaker.",
       resources: [
         { id: "wind", name: "Wind farm", capacity: 35, offer: 0, className: "wind", offerCurve: [{ mw: 0, price: 0 }, { mw: 35, price: 0 }] },
@@ -806,7 +814,19 @@
       loadLabel: "West: 35 MW · East: 65 MW",
       networkLabel: "20 MW (West → East)",
       defaultDispatch: { westWind: 35, westGas: 20, eastBattery: 20, eastGas: 25 },
-      description: "Continuous supply curves are split across two buses. The interface limit forces the east bus to use its own marginal supply.",
+      description: "Continuous supply curves are split across two buses. Calculate expected zonal demand and availability, then apply the interface limit and east-side marginal supply.",
+      evForecast: {
+        demandZones: {
+          west: [{ value: 30, probability: 0.5 }, { value: 40, probability: 0.5 }],
+          east: [{ value: 55, probability: 0.5 }, { value: 75, probability: 0.5 }]
+        },
+        resources: {
+          westWind: { label: "West wind availability", outcomes: [{ value: 30, probability: 0.5 }, { value: 40, probability: 0.5 }] },
+          westGas: { label: "West gas availability", outcomes: [{ value: 15, probability: 0.5 }, { value: 25, probability: 0.5 }] },
+          eastBattery: { label: "East battery availability", outcomes: [{ value: 15, probability: 0.5 }, { value: 25, probability: 0.5 }] },
+          eastGas: { label: "East gas availability", outcomes: [{ value: 20, probability: 0.5 }, { value: 30, probability: 0.5 }] }
+        }
+      },
       challenge: "Challenge: serve both zonal loads while using the full 20 MW interface and respecting each resource's rising offer curve.",
       resources: [
         { id: "westWind", name: "West wind", capacity: 35, offer: 0, className: "wind", zone: "west", offerCurve: [{ mw: 0, price: 0 }, { mw: 35, price: 0 }] },
@@ -829,7 +849,15 @@
       defaultCommitment: { wind: 1, gas: 1, hydro: 1, peaker: 0 },
       defaultReserve: { wind: 5, gas: 10, hydro: 0, peaker: 0 },
       defaultDispatch: { wind: 35, gas: 50, hydro: 25, peaker: 0 },
-      description: "Commitment decisions cover three hours, while reserve sliders hold headroom back from energy dispatch. Startup costs make the best commitment non-obvious.",
+      description: "Commitment decisions cover three hours, while reserve sliders hold headroom back from energy dispatch. Use expected demand and availability alongside startup costs to choose the commitment.",
+      evForecast: {
+        demand: [{ value: 100, probability: 0.5 }, { value: 120, probability: 0.5 }],
+        resources: {
+          wind: { label: "Wind availability", outcomes: [{ value: 30, probability: 0.5 }, { value: 40, probability: 0.5 }] },
+          gas: { label: "Gas availability", outcomes: [{ value: 50, probability: 0.5 }, { value: 70, probability: 0.5 }] },
+          hydro: { label: "Hydro availability", outcomes: [{ value: 30, probability: 0.5 }, { value: 50, probability: 0.5 }] }
+        }
+      },
       challenge: "Challenge: commit enough capacity for the peak and place 15 MW of reserve without starting the peaker.",
       resources: [
         { id: "wind", name: "Wind farm", capacity: 40, offer: 0, className: "wind", startupCost: 0, reserveCapacity: 5, reserveOffer: 0, offerCurve: [{ mw: 0, price: 0 }, { mw: 40, price: 0 }] },
@@ -854,7 +882,18 @@
       defaultCommitment: { westWind: 1, westGas: 1, eastGas: 1, peaker: 0 },
       defaultReserve: { westWind: 5, westGas: 10, eastGas: 5, peaker: 0 },
       defaultDispatch: { westWind: 35, westGas: 30, eastGas: 55, peaker: 0 },
-      description: "The final tutorial combines a zonal transmission limit, a price-sensitive load, startup costs, and a reserve requirement.",
+      description: "The final tutorial combines expected zonal demand and availability with a transmission limit, price-sensitive supply, startup costs, and a reserve requirement.",
+      evForecast: {
+        demandZones: {
+          west: [{ value: 45, probability: 0.5 }, { value: 55, probability: 0.5 }],
+          east: [{ value: 60, probability: 0.5 }, { value: 80, probability: 0.5 }]
+        },
+        resources: {
+          westWind: { label: "West wind availability", outcomes: [{ value: 30, probability: 0.5 }, { value: 40, probability: 0.5 }] },
+          westGas: { label: "West gas availability", outcomes: [{ value: 25, probability: 0.5 }, { value: 35, probability: 0.5 }] },
+          eastGas: { label: "East gas availability", outcomes: [{ value: 50, probability: 0.5 }, { value: 70, probability: 0.5 }] }
+        }
+      },
       challenge: "Challenge: keep the east load supplied, reserve 20 MW, and avoid starting the peaker while respecting the 15 MW interface.",
       resources: [
         { id: "westWind", name: "West wind", capacity: 40, offer: 0, className: "wind", zone: "west", startupCost: 0, reserveCapacity: 5, reserveOffer: 0, offerCurve: [{ mw: 0, price: 0 }, { mw: 40, price: 0 }] },
@@ -882,7 +921,23 @@
       defaultCommitment: { westWind: 1, westGas: 1, eastSolar: 1, eastGas: 1, peaker: 0 },
       defaultReserve: { westWind: 5, westGas: 10, eastSolar: 5, eastGas: 5, peaker: 0 },
       defaultDispatch: { westWind: 45, westGas: 30, eastSolar: 25, eastGas: 35, peaker: 0 },
-      description: "A two-hour network schedule combines rising offer curves, zonal transmission, startup costs, commitment, and operating reserves.",
+      description: "A two-hour network schedule combines EV demand and availability forecasts, rising offer curves, zonal transmission, startup costs, commitment, and operating reserves.",
+      evForecast: {
+        hours: [
+          { label: "Hour 1 demand", outcomes: [{ value: 100, probability: 0.5 }, { value: 120, probability: 0.5 }] },
+          { label: "Hour 2 demand", outcomes: [{ value: 125, probability: 0.5 }, { value: 145, probability: 0.5 }] }
+        ],
+        demandZones: {
+          west: [{ value: 50, probability: 0.5 }, { value: 60, probability: 0.5 }],
+          east: [{ value: 70, probability: 0.5 }, { value: 90, probability: 0.5 }]
+        },
+        resources: {
+          westWind: { label: "West wind availability", outcomes: [{ value: 40, probability: 0.5 }, { value: 50, probability: 0.5 }] },
+          westGas: { label: "West gas availability", outcomes: [{ value: 40, probability: 0.5 }, { value: 50, probability: 0.5 }] },
+          eastSolar: { label: "East solar availability", outcomes: [{ value: 25, probability: 0.5 }, { value: 35, probability: 0.5 }] },
+          eastGas: { label: "East gas availability", outcomes: [{ value: 60, probability: 0.5 }, { value: 80, probability: 0.5 }] }
+        }
+      },
       resources: [
         { id: "westWind", name: "West wind", capacity: 50, offer: 0, className: "wind", zone: "west", startupCost: 0, reserveCapacity: 5, reserveOffer: 0, offerCurve: [{ mw: 0, price: 0 }, { mw: 50, price: 0 }] },
         { id: "westGas", name: "West gas", capacity: 50, offer: 35, className: "gas", zone: "west", startupCost: 250, reserveCapacity: 20, reserveOffer: 8, offerCurve: [{ mw: 0, price: 35 }, { mw: 25, price: 35 }, { mw: 50, price: 55 }] },
@@ -1599,21 +1654,34 @@
   function renderDayAheadOffers(level) {
     const values = dayAheadOfferValues(level);
     if (level.controlMode === "commitment") {
-      els["day-ahead-offers"].innerHTML = level.resources.map((resource) => `<article class="day-ahead-offer"><div class="day-ahead-offer-info"><strong>${resource.name}</strong><span>Physical capacity: ${resource.capacity} MW</span><span>${dayAheadCurveSummary(resource)} - Startup cost: $${resource.startupCost || 0}/day</span></div><div class="day-ahead-offer-control"><label class="day-ahead-control-label">Commit unit</label><button type="button" class="day-ahead-toggle ${values[resource.id] ? "is-on" : ""}" aria-pressed="${values[resource.id] ? "true" : "false"}" data-day-ahead-offer="${resource.id}" data-day-ahead-kind="commitment" aria-label="Toggle commitment for ${resource.name}">${values[resource.id] ? "ON" : "OFF"}</button></div></article>`).join("");
+      els["day-ahead-offers"].innerHTML = level.resources.map((resource) => `<article class="day-ahead-offer"><div class="day-ahead-offer-info"><strong>${resource.name}</strong><div class="day-ahead-offer-metrics"><span><small>Supply capacity</small><b>${resource.capacity} MW</b></span><span><small>Startup cost</small><b>$${resource.startupCost || 0}</b></span><span><small>Offer</small><b>${dayAheadCurveSummary(resource)}</b></span></div>${renderDayAheadCurve(resource)}</div><div class="day-ahead-offer-control"><label class="day-ahead-control-label">Commit unit</label><button type="button" class="day-ahead-toggle ${values[resource.id] ? "is-on" : ""}" aria-pressed="${values[resource.id] ? "true" : "false"}" data-day-ahead-offer="${resource.id}" data-day-ahead-kind="commitment" aria-label="Toggle commitment for ${resource.name}">${values[resource.id] ? "ON" : "OFF"}</button></div></article>`).join("");
       return;
     }
     if (["commitmentReserve", "integrated"].includes(level.controlMode)) {
       els["day-ahead-offers"].innerHTML = level.resources.map((resource) => {
         const value = values[resource.id];
-        return `<article class="day-ahead-offer"><div class="day-ahead-offer-info"><strong>${resource.name}</strong><span>Energy capacity: ${resource.capacity} MW | Reserve capacity: ${resource.reserveCapacity} MW</span><span>${dayAheadCurveSummary(resource)} · Startup cost: $${resource.startupCost}/day</span></div><div class="day-ahead-offer-control"><label class="day-ahead-control-label" for="day-ahead-commit-${resource.id}">Commit unit</label><input id="day-ahead-commit-${resource.id}" type="range" min="0" max="1" step="1" value="${value.commitment}" data-day-ahead-offer="${resource.id}" data-day-ahead-kind="commitment" aria-label="Commit unit for ${resource.name}"><span class="day-ahead-offer-readout" data-day-ahead-readout="${resource.id}-commitment">${value.commitment ? "ON" : "OFF"}</span><label class="day-ahead-control-label" for="day-ahead-reserve-${resource.id}">Reserve target</label><input id="day-ahead-reserve-${resource.id}" type="range" min="0" max="${resource.reserveCapacity}" step="1" value="${value.reserve}" data-day-ahead-offer="${resource.id}" data-day-ahead-kind="reserve" aria-label="Reserve target for ${resource.name}"><span class="day-ahead-offer-readout" data-day-ahead-readout="${resource.id}-reserve">${value.reserve} MW reserve</span></div></article>`;
+        return `<article class="day-ahead-offer"><div class="day-ahead-offer-info"><strong>${resource.name}</strong><div class="day-ahead-offer-metrics"><span><small>Energy capacity</small><b>${resource.capacity} MW</b></span><span><small>Reserve capacity</small><b>${resource.reserveCapacity} MW</b></span><span><small>Startup cost</small><b>$${resource.startupCost || 0}</b></span><span><small>Offer curve</small><b>${dayAheadCurveSummary(resource)}</b></span></div>${renderDayAheadCurve(resource)}</div><div class="day-ahead-offer-control"><label class="day-ahead-control-label" for="day-ahead-commit-${resource.id}">Commit unit</label><input id="day-ahead-commit-${resource.id}" type="range" min="0" max="1" step="1" value="${value.commitment}" data-day-ahead-offer="${resource.id}" data-day-ahead-kind="commitment" aria-label="Commit unit for ${resource.name}"><span class="day-ahead-offer-readout" data-day-ahead-readout="${resource.id}-commitment">${value.commitment ? "ON" : "OFF"}</span><label class="day-ahead-control-label" for="day-ahead-reserve-${resource.id}">Reserve target</label><input id="day-ahead-reserve-${resource.id}" type="range" min="0" max="${resource.reserveCapacity}" step="1" value="${value.reserve}" data-day-ahead-offer="${resource.id}" data-day-ahead-kind="reserve" aria-label="Reserve target for ${resource.name}"><span class="day-ahead-offer-readout" data-day-ahead-readout="${resource.id}-reserve">${value.reserve} MW reserve</span></div></article>`;
       }).join("");
       upgradeCommitmentReserveControls(level, values);
       return;
     }
     els["day-ahead-offers"].innerHTML = level.resources.map((resource) => `<article class="day-ahead-offer">
-      <div class="day-ahead-offer-info"><strong>${resource.name}</strong><span>${resource.reserveCapacity !== undefined ? `Energy capacity: ${resource.capacity} MW | Reserve capacity: ${resource.reserveCapacity} MW` : `Physical capacity: ${resource.capacity} MW`}</span><span>${dayAheadCurveSummary(resource)}</span>${renderDayAheadCurve(resource)}</div>
+      <div class="day-ahead-offer-info"><strong>${resource.name}</strong><div class="day-ahead-offer-metrics"><span><small>Supply capacity</small><b>${resource.capacity} MW</b></span>${resource.reserveCapacity !== undefined ? `<span><small>Reserve capacity</small><b>${resource.reserveCapacity} MW</b></span>` : ""}<span><small>Offer curve</small><b>${dayAheadCurveSummary(resource)}</b></span></div>${renderDayAheadCurve(resource)}</div>
       <div class="day-ahead-offer-control"><label class="day-ahead-control-label" for="day-ahead-input-${resource.id}">${dayAheadControlConfig(level, resource).label}</label><input id="day-ahead-input-${resource.id}" type="range" min="0" max="${dayAheadControlConfig(level, resource).max}" step="${dayAheadControlConfig(level, resource).step}" value="${values[resource.id]}" data-day-ahead-offer="${resource.id}" aria-label="${dayAheadControlConfig(level, resource).label} for ${resource.name}" ><span class="day-ahead-offer-readout" data-day-ahead-readout="${resource.id}">${values[resource.id]} ${dayAheadControlConfig(level, resource).suffix}</span></div>
     </article>`).join("");
+  }
+
+  function renderCombinedSupplyCurve(level) {
+    const resources = level.resources.filter((resource) => Array.isArray(resource.offerCurve) && resource.offerCurve.length > 1);
+    if (!resources.length) return "";
+    const maxMw = Math.max(1, ...resources.map((resource) => Number(resource.capacity) || 0));
+    const maxPrice = Math.max(1, ...resources.flatMap((resource) => resource.offerCurve.map((point) => Number(point.price) || 0)));
+    const lines = resources.map((resource) => {
+      const points = resource.offerCurve.map((point) => `${10 + (Number(point.mw) / maxMw) * 300},${160 - (Number(point.price) / maxPrice) * 130}`).join(" ");
+      return `<polyline class="day-ahead-combined-curve-line ${resource.className || ""}" points="${points}" aria-label="${resource.name} supply curve"></polyline>`;
+    }).join("");
+    const legend = resources.map((resource) => `<span><i class="day-ahead-combined-curve-swatch ${resource.className || ""}"></i>${resource.name}</span>`).join("");
+    return `<div class="day-ahead-combined-curve"><strong>Overlapping supply curves</strong><svg viewBox="0 0 320 175" role="img" aria-label="Overlapping supply curves"><line class="day-ahead-combined-curve-axis" x1="10" y1="160" x2="310" y2="160"></line><line class="day-ahead-combined-curve-axis" x1="10" y1="160" x2="10" y2="30"></line>${lines}<text x="160" y="174">MW</text><text x="2" y="28">$/MWh</text></svg><div class="day-ahead-combined-curve-legend">${legend}</div></div>`;
   }
 
   function renderDayAheadStack(level) {
@@ -1621,7 +1689,7 @@
     const dispatchStackMode = ["commitmentReserve", "integrated"].includes(level.controlMode);
     const totalCapacity = dispatchStackMode ? level.resources.reduce((sum, resource) => sum + resource.capacity, 0) : level.resources.reduce((sum, resource) => sum + dayAheadControlConfig(level, resource).max, 0);
     els["day-ahead-stack-max"].textContent = `${totalCapacity} MW offered`;
-    els["day-ahead-stack"].innerHTML = [...level.resources].sort((a, b) => dayAheadCurvePrice(a, 1) - dayAheadCurvePrice(b, 1)).map((resource) => {
+    const rows = [...level.resources].sort((a, b) => dayAheadCurvePrice(a, 1) - dayAheadCurvePrice(b, 1)).map((resource) => {
       const rawValue = values[resource.id];
       const available = dispatchStackMode ? rawValue.dispatch : rawValue;
       const width = totalCapacity ? Math.max(0, Math.min(100, (available / totalCapacity) * 100)) : 0;
@@ -1629,6 +1697,34 @@
       const priceLabel = level.controlMode === "reserve" ? `$${resource.reserveOffer}/MW reserve` : `$${resource.offer}/MWh`;
       return `<div class="day-ahead-stack-row"><span class="day-ahead-stack-label">${resource.name}</span><div class="day-ahead-stack-track"><span class="day-ahead-stack-segment ${resource.className}" style="width:${width}%">${available ? valueLabel : ""}</span></div><span class="day-ahead-stack-value">${priceLabel}</span></div>`;
     }).join("");
+    els["day-ahead-stack"].innerHTML = `${renderCombinedSupplyCurve(level)}${rows}`;
+  }
+
+  function renderCommitmentCalculationTable(level, result) {
+    const hours = level.hours || [{ id: 1, demand: level.demand }];
+    const energyCostByResource = Object.fromEntries(level.resources.map((resource) => [resource.id, hours.reduce((sum, hour) => sum + dayAheadCurveCost(resource, result.hourlyAwards?.[hour.id]?.[resource.id] || 0), 0)]));
+    const header = ["Unit", "Commit", "Supply capacity", "Reserve", "Energy available", ...hours.map((hour) => `Hour ${hour.id}`), "Energy cost", "Startup", "Reserve cost"];
+    const rows = level.resources.map((resource) => {
+      const committed = result.commitments?.[resource.id] ? "ON" : "OFF";
+      const reserve = result.reserveAwards?.[resource.id] || 0;
+      const available = result.energyCapacity?.[resource.id] ?? (result.commitments?.[resource.id] ? resource.capacity : 0);
+      const cells = [resource.name, committed, `${resource.capacity} MW`, `${reserve.toFixed(0)} MW`, `${available.toFixed(0)} MW`, ...hours.map((hour) => `${(result.hourlyAwards?.[hour.id]?.[resource.id] || 0).toFixed(0)} MW`), `$${energyCostByResource[resource.id].toFixed(0)}`, `$${result.commitments?.[resource.id] ? (Number(resource.startupCost) || 0).toFixed(0) : "0"}`, `$${(reserve * (Number(resource.reserveOffer) || 0)).toFixed(0)}`];
+      return `<tr>${cells.map((cell) => `<td>${cell}</td>`).join("")}</tr>`;
+    }).join("");
+    const totalCells = ["TOTAL", "", `${level.resources.reduce((sum, resource) => sum + (result.commitments?.[resource.id] ? resource.capacity : 0), 0)} MW`, `${(result.reserveTotal || 0).toFixed(0)} MW`, `${level.resources.reduce((sum, resource) => sum + (result.energyCapacity?.[resource.id] || 0), 0).toFixed(0)} MW`, ...hours.map((hour) => `${Object.values(result.hourlyAwards?.[hour.id] || {}).reduce((sum, value) => sum + value, 0).toFixed(0)} MW`), `$${(result.energyCost || 0).toFixed(0)}`, `$${(result.startupCost || 0).toFixed(0)}`, `$${(result.reserveCost || 0).toFixed(0)}`];
+    return `<div class="day-ahead-calculation-table-wrap"><table class="day-ahead-calculation-table"><thead><tr>${header.map((cell) => `<th>${cell}</th>`).join("")}</tr></thead><tbody>${rows}<tr class="day-ahead-calculation-total">${totalCells.map((cell) => `<td>${cell}</td>`).join("")}</tr></tbody></table></div>`;
+  }
+
+  function renderDayAheadEVSummary(level) {
+    if (!level.evForecast) return "";
+    const expectedValue = (outcomes = []) => outcomes.reduce((sum, entry) => sum + Number(entry.value) * Number(entry.probability), 0);
+    const outcomesText = (outcomes = []) => outcomes.map((entry) => `${Number(entry.value).toFixed(0)} MW × ${Math.round(Number(entry.probability) * 100)}%`).join(" + ");
+    const rows = [];
+    if (level.evForecast.demand) rows.push({ label: "System demand", outcomes: level.evForecast.demand });
+    Object.entries(level.evForecast.demandZones || {}).forEach(([zone, outcomes]) => rows.push({ label: `${zone[0].toUpperCase()}${zone.slice(1)} demand`, outcomes }));
+    Object.entries(level.evForecast.resources || {}).forEach(([id, item]) => rows.push({ label: item.label || id, outcomes: item.outcomes || [] }));
+    (level.evForecast.hours || []).forEach((hour) => rows.push({ label: hour.label, outcomes: hour.outcomes || [] }));
+    return `<div class="day-ahead-ev-summary"><strong>EV calculation</strong><table class="day-ahead-ev-table"><thead><tr><th>Forecast item</th><th>Calculation</th><th>Expected MW</th></tr></thead><tbody>${rows.map((row) => `<tr><td>${row.label}</td><td>${outcomesText(row.outcomes)}</td><td>${expectedValue(row.outcomes).toFixed(0)} MW</td></tr>`).join("")}</tbody></table></div>`;
   }
 
   function renderDayAheadResult(message = "Run the market to calculate awards and the DAM LMP.", className = "") {
@@ -1720,7 +1816,7 @@
     const committed = Object.fromEntries(level.resources.map((resource) => [resource.id, commitments[resource.id] ? 1 : 0]));
     const hourlyAwards = {};
     const hourlyLmps = {};
-    let totalCost = 0;
+    let energyCost = 0;
     let remaining = 0;
     (level.hours || []).forEach((hour) => {
       let needed = Number(hour.demand) || 0;
@@ -1729,15 +1825,16 @@
         const award = Math.min(resource.capacity, Math.max(0, needed));
         awards[resource.id] = award;
         needed -= award;
-        totalCost += award * (Number(resource.offer) || 0);
+        energyCost += award * (Number(resource.offer) || 0);
       });
       remaining = Math.max(remaining, needed);
       const marginal = [...level.resources].filter((resource) => awards[resource.id] > 0).sort((a, b) => a.offer - b.offer).at(-1);
       hourlyLmps[hour.id] = marginal?.offer ?? null;
       hourlyAwards[hour.id] = awards;
     });
-    level.resources.forEach((resource) => { if (committed[resource.id]) totalCost += Number(resource.startupCost) || 0; });
-    return { commitments: committed, awards: committed, hourlyAwards, hourlyLmps, remaining, overage: 0, feasible: remaining <= 0.01, totalCost, lmp: Math.max(...Object.values(hourlyLmps).filter(Number.isFinite), 0) };
+    const startupCost = level.resources.reduce((sum, resource) => sum + (committed[resource.id] ? Number(resource.startupCost) || 0 : 0), 0);
+    const energyCapacity = Object.fromEntries(level.resources.map((resource) => [resource.id, committed[resource.id] ? resource.capacity : 0]));
+    return { commitments: committed, awards: committed, hourlyAwards, hourlyLmps, energyCapacity, reserveAwards: Object.fromEntries(level.resources.map((resource) => [resource.id, 0])), remaining, overage: 0, feasible: remaining <= 0.01, energyCost, startupCost, reserveCost: 0, totalCost: energyCost + startupCost, lmp: Math.max(...Object.values(hourlyLmps).filter(Number.isFinite), 0) };
   }
 
   function solveOptimalCommitment(level) {
@@ -1823,7 +1920,7 @@
         nodeLmps[zone] = accepted.length ? Math.max(...accepted.map((resource) => dayAheadCurvePrice(resource, hourlyAwards[hours[0].id][resource.id]))) : null;
       });
     }
-    return { commitments, awards: commitments, reserveAwards, energyAwards: hourlyAwards[hours[0].id], hourlyAwards, hourlyFlows, hourlyLmps, reserveTotal, reserveShortfall, remaining, overage: 0, feasible: reserveShortfall <= 0.01 && remaining <= 0.01, energyCost, startupCost, reserveCost, totalCost: energyCost + startupCost + reserveCost, lmp: Math.max(...Object.values(hourlyLmps).filter(Number.isFinite), 0), flow: hourlyFlows[hours[0].id] || 0, nodeLmps };
+    return { commitments, awards: commitments, reserveAwards, energyCapacity, energyAwards: hourlyAwards[hours[0].id], hourlyAwards, hourlyFlows, hourlyLmps, reserveTotal, reserveShortfall, remaining, overage: 0, feasible: reserveShortfall <= 0.01 && remaining <= 0.01, energyCost, startupCost, reserveCost, totalCost: energyCost + startupCost + reserveCost, lmp: Math.max(...Object.values(hourlyLmps).filter(Number.isFinite), 0), flow: hourlyFlows[hours[0].id] || 0, nodeLmps };
   }
 
   function solveOptimalCommitmentReserve(level) {
@@ -2014,6 +2111,7 @@
     const level = getDayAheadLevel();
     const values = dayAheadOfferValues(level);
     state.dayAheadResult = clearDayAhead(level, values);
+    const evSummary = renderDayAheadEVSummary(level);
     const { awards, remaining, totalCost } = state.dayAheadResult;
     const awardRows = level.resources.map((resource) => {
       if (["commitment", "commitmentReserve", "integrated"].includes(level.controlMode)) return `<span>${resource.name}</span><span>${awards[resource.id] ? "ON" : "OFF"}</span>`;
@@ -2026,10 +2124,8 @@
         renderDayAheadResult(`<strong>Insufficient commitment</strong><span>At least ${level.demand} MW must be available in the peak hour.</span><div class="day-ahead-result-grid">${awardRows}</div>`, "is-error");
         return;
       }
-      const hours = Object.entries(state.dayAheadResult.hourlyAwards).map(([hour, hourAwards]) => `<span>Hour ${hour}</span><span>${Object.entries(hourAwards).filter(([, value]) => value > 0).map(([id, value]) => `${id} ${value.toFixed(0)} MW`).join(", ")}</span>`).join("");
-      const reserveRows = level.reserveRequirement ? level.resources.map((resource) => `<span>${resource.name} reserve</span><span>${state.dayAheadResult.reserveAwards[resource.id].toFixed(0)} MW @ $${Number(resource.reserveOffer).toFixed(0)}/MW</span>`).join("") : "";
       const networkText = level.controlMode === "integrated" ? ` West → East flow: ${state.dayAheadResult.flow.toFixed(0)} MW. West LMP: $${state.dayAheadResult.nodeLmps.west}/MWh; East LMP: $${state.dayAheadResult.nodeLmps.east}/MWh.` : "";
-      renderDayAheadResult(`<strong>Commitment feasible</strong><span>Startup cost and energy cost are included.${networkText}</span><div class="day-ahead-result-grid">${awardRows}${reserveRows}<span>Hourly dispatch</span><span></span>${hours}<span>Total cost</span><span>$${totalCost.toFixed(0)}</span></div>`, "");
+      renderDayAheadResult(`<strong>Commitment feasible</strong><span>Every cost and MW calculation is shown below.${networkText}</span>${evSummary}${renderCommitmentCalculationTable(level, state.dayAheadResult)}<div class="day-ahead-result-grid"><span>Total schedule cost</span><span>$${totalCost.toFixed(0)}</span></div>`, "");
       return;
     }
     if (level.controlMode === "reserve") {
@@ -2063,7 +2159,7 @@
         renderDayAheadResult(`<strong>Network infeasible</strong><span>Respect the ${level.lineLimit} MW interface and balance both buses.</span><div class="day-ahead-result-grid">${awardRows}<span>West → East flow</span><span>${state.dayAheadResult.flow.toFixed(0)} MW</span></div>`, "is-error");
         return;
       }
-      renderDayAheadResult(`<strong>West LMP: $${state.dayAheadResult.nodeLmps.west}/MWh · East LMP: $${state.dayAheadResult.nodeLmps.east}/MWh</strong><span>Congestion binds at ${state.dayAheadResult.flow.toFixed(0)} MW on the West → East interface.</span><div class="day-ahead-result-grid">${awardRows}<span>Total energy cost</span><span>$${totalCost.toFixed(0)}</span></div>`, "");
+      renderDayAheadResult(`<strong>West LMP: $${state.dayAheadResult.nodeLmps.west}/MWh · East LMP: $${state.dayAheadResult.nodeLmps.east}/MWh</strong><span>Congestion binds at ${state.dayAheadResult.flow.toFixed(0)} MW on the West → East interface.</span>${evSummary}<div class="day-ahead-result-grid">${awardRows}<span>Total energy cost</span><span>$${totalCost.toFixed(0)}</span></div>`, "");
       return;
     }
     if (["dispatch", "demandCurve"].includes(level.controlMode) && state.dayAheadResult.overage > 0) {
@@ -2076,7 +2172,7 @@
     }
     const headline = ["dispatch", "demandCurve"].includes(level.controlMode) ? `Implied marginal offer: $${state.dayAheadResult.lmp}/MWh` : `DAM LMP: $${state.dayAheadResult.lmp}/MWh`;
     const explanation = level.controlMode === "dispatch" ? `Dispatch matches the ${level.demand} MW forecast. Curve cost is calculated for every awarded MW.` : `All ${level.demand} MW are awarded at the least-cost available offers.`;
-    renderDayAheadResult(`<strong>${headline}</strong><span>${explanation}</span><div class="day-ahead-result-grid">${awardRows}<span>Total energy cost</span><span>$${totalCost.toFixed(0)}</span></div>`, "");
+    renderDayAheadResult(`<strong>${headline}</strong><span>${explanation}</span>${evSummary}<div class="day-ahead-result-grid">${awardRows}<span>Total energy cost</span><span>$${totalCost.toFixed(0)}</span></div>`, "");
   }
 
   function checkDayAheadSchedule() {
@@ -2104,8 +2200,9 @@
     state.dayAheadStatuses.set(level.id, status);
     saveProgress();
     renderDayAheadNavigation();
-    const successMessage = level.controlMode === "forecastHedge" ? "<strong>Perfect EV schedule</strong><span>The dispatch matches the weighted expected wind and demand values, with the residual supplied in merit order.</span>" : "<strong>Perfect schedule</strong><span>The marginal accepted offer is the DAM LMP.</span>";
-    const partialMessage = level.controlMode === "forecastHedge" ? "<strong>Valid forecast schedule, but not the EV target</strong><span>The schedule serves the day-ahead requirement, but it does not match the weighted expected values.</span>" : "<strong>Valid schedule, but not optimal</strong><span>The load is served, but the awards differ from the least-cost schedule.</span>";
+    const evSummary = renderDayAheadEVSummary(level);
+    const successMessage = level.controlMode === "forecastHedge" ? `<strong>Perfect EV schedule</strong><span>The dispatch matches the weighted expected wind and demand values, with the residual supplied in merit order.</span>${evSummary}` : `<strong>Perfect schedule</strong><span>The marginal accepted offer is the DAM LMP.</span>${evSummary}`;
+    const partialMessage = level.controlMode === "forecastHedge" ? `<strong>Valid forecast schedule, but not the EV target</strong><span>The schedule serves the day-ahead requirement, but it does not match the weighted expected values.</span>${evSummary}` : `<strong>Valid schedule, but not optimal</strong><span>The load is served, but the awards differ from the least-cost schedule.</span>${evSummary}`;
     renderDayAheadResult(perfect ? successMessage : partialMessage, perfect ? "is-correct" : "is-close");
   }
 
@@ -2163,19 +2260,35 @@
   function renderForecastHedgeForecast(level) {
     const forecast = els["day-ahead-forecast"];
     if (!forecast) return;
-    if (level.controlMode !== "forecastHedge") {
+    if (level.controlMode === "forecastHedge") {
+      const windForecast = level.windForecast || [];
+      const demandForecast = level.demandForecast || [];
+      const expectedWind = windForecast.reduce((sum, entry) => sum + Number(entry.strength) * Number(entry.probability), 0);
+      const expectedDemand = demandForecast.reduce((sum, entry) => sum + Number(entry.demand) * Number(entry.probability), 0);
+      const windRows = windForecast.map((entry) => `<span>${Number(entry.strength).toFixed(0)} MW wind</span><strong>${Math.round(Number(entry.probability) * 100)}%</strong>`).join("");
+      const demandRows = demandForecast.map((entry) => `<span>${Number(entry.demand).toFixed(0)} MW demand</span><strong>${Math.round(Number(entry.probability) * 100)}%</strong>`).join("");
+      forecast.hidden = false;
+      forecast.innerHTML = `<strong class="day-ahead-forecast-title">Probability forecast</strong><span class="day-ahead-forecast-note">Wind and demand outcomes are independent. Use probability × cost for each outcome combination.</span><div class="day-ahead-forecast-columns"><div><span class="day-ahead-forecast-label">Wind strength</span>${windRows}</div><div><span class="day-ahead-forecast-label">Load demand</span>${demandRows}</div></div><span class="day-ahead-forecast-expected">Expected values: ${expectedWind.toFixed(0)} MW wind · ${expectedDemand.toFixed(0)} MW demand · ${(expectedDemand - expectedWind).toFixed(0)} MW net demand</span>`;
+      return;
+    }
+    if (!level.evForecast) {
       forecast.hidden = true;
       forecast.innerHTML = "";
       return;
     }
-    const windForecast = level.windForecast || [];
-    const demandForecast = level.demandForecast || [];
-    const expectedWind = windForecast.reduce((sum, entry) => sum + Number(entry.strength) * Number(entry.probability), 0);
-    const expectedDemand = demandForecast.reduce((sum, entry) => sum + Number(entry.demand) * Number(entry.probability), 0);
-    const windRows = windForecast.map((entry) => `<span>${Number(entry.strength).toFixed(0)} MW wind</span><strong>${Math.round(Number(entry.probability) * 100)}%</strong>`).join("");
-    const demandRows = demandForecast.map((entry) => `<span>${Number(entry.demand).toFixed(0)} MW demand</span><strong>${Math.round(Number(entry.probability) * 100)}%</strong>`).join("");
+    const expectedValue = (outcomes = []) => outcomes.reduce((sum, entry) => sum + Number(entry.value) * Number(entry.probability), 0);
+    const outcomeRows = (outcomes = []) => outcomes.map((entry) => `<span>${Number(entry.value).toFixed(0)} MW</span><strong>${Math.round(Number(entry.probability) * 100)}%</strong>`).join("");
+    const ev = level.evForecast;
+    const demandEntries = ev.demand ? [{ label: "System demand", outcomes: ev.demand }] : [];
+    Object.entries(ev.demandZones || {}).forEach(([zone, outcomes]) => demandEntries.push({ label: `${zone[0].toUpperCase()}${zone.slice(1)} demand`, outcomes }));
+    const resourceEntries = Object.entries(ev.resources || {}).map(([id, item]) => ({ label: item.label || id, outcomes: item.outcomes || [] }));
+    const hourEntries = (ev.hours || []).map((hour) => ({ label: hour.label, outcomes: hour.outcomes || [] }));
+    const expectedDemand = ev.demand ? expectedValue(ev.demand) : Object.values(ev.demandZones || {}).reduce((sum, outcomes) => sum + expectedValue(outcomes), 0);
+    const expectedSupply = resourceEntries.reduce((sum, entry) => sum + expectedValue(entry.outcomes), 0);
+    const demandMarkup = [...hourEntries, ...demandEntries].map((entry) => `<div class="day-ahead-forecast-row"><span>${entry.label}</span><span>${outcomeRows(entry.outcomes)}</span><strong>EV ${expectedValue(entry.outcomes).toFixed(0)} MW</strong></div>`).join("");
+    const resourceMarkup = resourceEntries.map((entry) => `<div class="day-ahead-forecast-row"><span>${entry.label}</span><span>${outcomeRows(entry.outcomes)}</span><strong>EV ${expectedValue(entry.outcomes).toFixed(0)} MW</strong></div>`).join("");
     forecast.hidden = false;
-    forecast.innerHTML = `<strong class="day-ahead-forecast-title">Probability forecast</strong><span class="day-ahead-forecast-note">Wind and demand outcomes are independent. Use probability × cost for each outcome combination.</span><div class="day-ahead-forecast-columns"><div><span class="day-ahead-forecast-label">Wind strength</span>${windRows}</div><div><span class="day-ahead-forecast-label">Load demand</span>${demandRows}</div></div><span class="day-ahead-forecast-expected">Expected values: ${expectedWind.toFixed(0)} MW wind · ${expectedDemand.toFixed(0)} MW demand · ${(expectedDemand - expectedWind).toFixed(0)} MW net demand</span>`;
+    forecast.innerHTML = `<strong class="day-ahead-forecast-title">Expected-value forecast</strong><span class="day-ahead-forecast-note">Calculate probability × MW for each outcome. Use the EV demand, zone requirements, and available supply when setting the schedule.</span><div class="day-ahead-forecast-columns"><div><span class="day-ahead-forecast-label">Demand forecast</span>${demandMarkup}</div><div><span class="day-ahead-forecast-label">Supply availability forecast</span>${resourceMarkup}</div></div><span class="day-ahead-forecast-expected">Expected demand: ${expectedDemand.toFixed(0)} MW · Expected available supply: ${expectedSupply.toFixed(0)} MW</span>`;
   }
 
   function resetDayAheadLevel() {
