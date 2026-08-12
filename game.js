@@ -3,6 +3,7 @@
 
   const PROGRESS_KEY = "power-market-solver-progress.v3";
   const THEME_KEY = "power-market-solver-theme.v1";
+  const CONSTRUCTION_INPUT_VERSION = 2;
   const DAY_AHEAD_INPUT_VERSION = 7;
   const colors = {
     red: "#ff3b30",
@@ -520,14 +521,16 @@
       id: 7,
       title: "Level 7: Parallel corridors",
       demand: 80,
-      description: "Parallel west-to-central corridors and a second west-to-east path divide power across two loads. Do not assume the first line is the primary route.",
+      description: "Two distinct relay corridors and a second west-to-east path divide power across two loads. Each corridor has its own junction, so no two transmission lines share the same endpoints.",
       nodes: [
         { id: "wind-1", type: "resource", name: "West wind", capacity: 35, offer: 5 },
         { id: "gas-1", type: "resource", name: "West gas", capacity: 35, offer: 25 },
         { id: "solar-1", type: "resource", name: "East solar", capacity: 25, offer: 12 },
-        { id: "west-1", type: "bus", name: "West hub" },
-        { id: "central-1", type: "bus", name: "Central hub" },
-        { id: "east-1", type: "bus", name: "East hub" },
+        { id: "west-1", type: "bus", name: "West hub", solutionPosition: { x: 300, y: 260 } },
+        { id: "upper-1", type: "bus", name: "Upper relay", solutionPosition: { x: 500, y: 135 } },
+        { id: "lower-1", type: "bus", name: "Lower relay", solutionPosition: { x: 500, y: 385 } },
+        { id: "central-1", type: "bus", name: "Central hub", solutionPosition: { x: 700, y: 260 } },
+        { id: "east-1", type: "bus", name: "East hub", solutionPosition: { x: 700, y: 430 } },
         { id: "north-1", type: "load", name: "North load", demand: 45 },
         { id: "south-1", type: "load", name: "South load", demand: 35 }
       ],
@@ -535,11 +538,13 @@
         { id: "line-1", name: "Wind to West", capacity: 40, flow: 30 },
         { id: "line-2", name: "Gas to West", capacity: 40, flow: 30 },
         { id: "line-3", name: "Solar to East", capacity: 30, flow: 20 },
-        { id: "line-4", name: "West to Central", capacity: 30, flow: 25 },
-        { id: "line-5", name: "West to Central", capacity: 25, flow: 20 },
-        { id: "line-6", name: "West to East", capacity: 20, flow: 15 },
-        { id: "line-7", name: "Central to North", capacity: 50, flow: 45 },
-        { id: "line-8", name: "East to South", capacity: 40, flow: 35 }
+        { id: "line-4", name: "West to Upper", capacity: 30, flow: 25 },
+        { id: "line-5", name: "Upper to Central", capacity: 30, flow: 25 },
+        { id: "line-6", name: "West to Lower", capacity: 25, flow: 20 },
+        { id: "line-7", name: "Lower to Central", capacity: 25, flow: 20 },
+        { id: "line-8", name: "West to East", capacity: 20, flow: 15 },
+        { id: "line-9", name: "Central to North", capacity: 50, flow: 45 },
+        { id: "line-10", name: "East to South", capacity: 40, flow: 35 }
       ]
     },
     {
@@ -1351,6 +1356,11 @@
       state.constructionStatuses = new Map(constructionEntries.filter(([id, status]) => constructionLevels.some((level) => level.id === Number(id)) && status === "green").map(([id, status]) => [Number(id), status]));
       const drafts = saved && typeof saved === "object" && saved.constructionDrafts && typeof saved.constructionDrafts === "object" ? Object.entries(saved.constructionDrafts) : [];
       state.constructionDrafts = new Map(drafts.filter(([id]) => constructionLevels.some((level) => level.id === Number(id))).map(([id, draft]) => [Number(id), draft]));
+      if (Number(saved.constructionInputVersion) !== CONSTRUCTION_INPUT_VERSION) {
+        const existingIds = constructionLevels.filter((level) => level.id < 7).map((level) => level.id);
+        state.constructionStatuses = new Map(existingIds.filter((id) => state.constructionStatuses.has(id)).map((id) => [id, state.constructionStatuses.get(id)]));
+        state.constructionDrafts = new Map();
+      }
       const dayAheadEntries = saved && typeof saved === "object" ? Object.entries(saved.dayAheadStatuses || {}) : [];
       state.dayAheadStatuses = new Map(dayAheadEntries.filter(([id, status]) => dayAheadLevels.some((level) => level.id === Number(id)) && ["yellow", "green"].includes(status)).map(([id, status]) => [Number(id), status]));
       state.dayAheadOffers = saved && typeof saved === "object" && saved.dayAheadOffers && typeof saved.dayAheadOffers === "object" ? saved.dayAheadOffers : {};
@@ -1373,6 +1383,7 @@
       statuses: Object.fromEntries(state.statuses),
       constructionStatuses: Object.fromEntries(state.constructionStatuses),
       constructionDrafts: Object.fromEntries(state.constructionDrafts),
+      constructionInputVersion: CONSTRUCTION_INPUT_VERSION,
       dayAheadStatuses: Object.fromEntries(state.dayAheadStatuses),
       dayAheadOffers: state.dayAheadOffers,
       dayAheadOfferVersion: DAY_AHEAD_INPUT_VERSION
@@ -2266,6 +2277,7 @@
   }
 
   function constructionSolutionNodePosition(level, piece) {
+    if (piece.solutionPosition) return { ...piece.solutionPosition };
     const sameType = level.nodes.filter((node) => node.type === piece.type);
     const index = sameType.findIndex((node) => node.id === piece.id);
     const x = piece.type === "resource" ? 140 : piece.type === "bus" ? 500 : 860;
