@@ -110,6 +110,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--blue); outl
 .day-ahead-curve-trace-line { stroke: var(--accent, var(--orange)); stroke-width: 1.25; stroke-dasharray: 3 3; pointer-events: none; }
 .day-ahead-curve-trace-point { fill: var(--accent, var(--orange)); stroke: var(--input-bg); stroke-width: 1.5; pointer-events: none; }
 .day-ahead-curve-trace-label { fill: var(--ink); font-size: 9px; font-weight: 800; pointer-events: none; paint-order: stroke; stroke: var(--input-bg); stroke-width: 3px; stroke-linejoin: round; }
+.day-ahead-curve-readout { min-height: 1.1em; color: var(--ink); font-size: 0.7rem; font-weight: 800; }
 .day-ahead-curve-line.wind { stroke: var(--blue); }
 .day-ahead-curve-line.solar { stroke: #d39e00; }
 .day-ahead-curve-line.gas { stroke: var(--purple); }

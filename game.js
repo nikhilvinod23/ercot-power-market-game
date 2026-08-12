@@ -4,7 +4,7 @@
   const PROGRESS_KEY = "power-market-solver-progress.v3";
   const THEME_KEY = "power-market-solver-theme.v1";
   const CONSTRUCTION_INPUT_VERSION = 4;
-  const DAY_AHEAD_INPUT_VERSION = 10;
+  const DAY_AHEAD_INPUT_VERSION = 11;
   const colors = {
     red: "#ff3b30",
     yellow: "#ffd60a",
@@ -897,7 +897,7 @@
       challenge: "Challenge: keep the east load supplied, reserve 20 MW, and avoid starting the peaker while respecting the 15 MW interface.",
       resources: [
         { id: "westWind", name: "West wind", capacity: 40, offer: 0, className: "wind", zone: "west", startupCost: 0, reserveCapacity: 5, reserveOffer: 0, offerCurve: [{ mw: 0, price: 0 }, { mw: 40, price: 0 }] },
-        { id: "westGas", name: "West gas", capacity: 40, offer: 35, className: "gas", zone: "west", startupCost: 250, reserveCapacity: 20, reserveOffer: 8, offerCurve: [{ mw: 0, price: 35 }, { mw: 20, price: 35 }, { mw: 40, price: 50 }] },
+        { id: "westGas", name: "West gas", capacity: 40, offer: 35, className: "gas", zone: "west", startupCost: 250, reserveCapacity: 20, reserveOffer: 8, offerCurve: [{ mw: 0, price: 35 }, { mw: 20, price: 35 }, { mw: 30, price: 42.5 }, { mw: 40, price: 90 }] },
         { id: "eastGas", name: "East gas", capacity: 60, offer: 60, className: "cycle", zone: "east", startupCost: 400, reserveCapacity: 20, reserveOffer: 12, offerCurve: [{ mw: 0, price: 60 }, { mw: 30, price: 60 }, { mw: 60, price: 75 }] },
         { id: "peaker", name: "East peaker", capacity: 50, offer: 110, className: "peaker", zone: "east", startupCost: 50, reserveCapacity: 30, reserveOffer: 25, offerCurve: [{ mw: 0, price: 110 }, { mw: 50, price: 110 }] }
       ],
@@ -940,7 +940,7 @@
       },
       resources: [
         { id: "westWind", name: "West wind", capacity: 50, offer: 0, className: "wind", zone: "west", startupCost: 0, reserveCapacity: 5, reserveOffer: 0, offerCurve: [{ mw: 0, price: 0 }, { mw: 50, price: 0 }] },
-        { id: "westGas", name: "West gas", capacity: 50, offer: 35, className: "gas", zone: "west", startupCost: 250, reserveCapacity: 20, reserveOffer: 8, offerCurve: [{ mw: 0, price: 35 }, { mw: 25, price: 35 }, { mw: 50, price: 55 }] },
+        { id: "westGas", name: "West gas", capacity: 50, offer: 35, className: "gas", zone: "west", startupCost: 250, reserveCapacity: 20, reserveOffer: 8, offerCurve: [{ mw: 0, price: 35 }, { mw: 25, price: 35 }, { mw: 30, price: 39 }, { mw: 50, price: 90 }] },
         { id: "eastSolar", name: "East solar", capacity: 30, offer: 20, className: "solar", zone: "east", startupCost: 0, reserveCapacity: 5, reserveOffer: 0, offerCurve: [{ mw: 0, price: 20 }, { mw: 30, price: 20 }] },
         { id: "eastGas", name: "East gas", capacity: 70, offer: 60, className: "cycle", zone: "east", startupCost: 400, reserveCapacity: 25, reserveOffer: 12, offerCurve: [{ mw: 0, price: 60 }, { mw: 40, price: 60 }, { mw: 70, price: 85 }] },
         { id: "peaker", name: "East peaker", capacity: 50, offer: 110, className: "peaker", zone: "east", startupCost: 50, reserveCapacity: 30, reserveOffer: 25, offerCurve: [{ mw: 0, price: 110 }, { mw: 50, price: 110 }] }
@@ -1624,7 +1624,7 @@
     const pointToSvg = (point) => ({ x: 28 + (Number(point.mw) / maxMw) * 220, y: 88 - (Number(point.price) / maxPrice) * 64 });
     const polyline = points.map((point) => { const svgPoint = pointToSvg(point); return `${svgPoint.x},${svgPoint.y}`; }).join(" ");
     const labels = points.map((point, index) => { const svgPoint = pointToSvg(point); const anchor = index === 0 ? "start" : index === points.length - 1 ? "end" : "middle"; return `<text class="day-ahead-curve-point-label" x="${svgPoint.x}" y="${Math.max(12, svgPoint.y - 6)}" text-anchor="${anchor}">${Number(point.mw).toFixed(0)} MW @ $${Number(point.price).toFixed(0)}</text>`; }).join("");
-    return `<svg class="day-ahead-curve" data-curve-resource="${resource.id}" data-curve-max-mw="${maxMw}" data-curve-max-price="${maxPrice}" viewBox="0 0 260 108" role="img" aria-label="${resource.name} offer curve. Hover or drag along the curve to inspect price."><line class="day-ahead-curve-axis" x1="28" y1="88" x2="248" y2="88"></line><line class="day-ahead-curve-axis" x1="28" y1="88" x2="28" y2="18"></line><polyline class="day-ahead-curve-line ${resource.className}" points="${polyline}"></polyline>${labels}<g class="day-ahead-curve-trace" hidden><line class="day-ahead-curve-trace-line" x1="28" y1="18" x2="28" y2="88"></line><circle class="day-ahead-curve-trace-point" cx="28" cy="88" r="3"></circle><text class="day-ahead-curve-trace-label" x="34" y="16"></text></g><text class="day-ahead-curve-axis-label" x="248" y="103" text-anchor="end">MW</text><text class="day-ahead-curve-axis-label" x="22" y="14" text-anchor="end">$/MWh</text></svg>`;
+    return `<svg class="day-ahead-curve" data-curve-resource="${resource.id}" data-curve-max-mw="${maxMw}" data-curve-max-price="${maxPrice}" viewBox="0 0 260 108" role="img" aria-label="${resource.name} offer curve. Hover or drag along the curve to inspect price."><line class="day-ahead-curve-axis" x1="28" y1="88" x2="248" y2="88"></line><line class="day-ahead-curve-axis" x1="28" y1="88" x2="28" y2="18"></line><polyline class="day-ahead-curve-line ${resource.className}" points="${polyline}"></polyline>${labels}<g class="day-ahead-curve-trace" hidden><line class="day-ahead-curve-trace-line" x1="28" y1="18" x2="28" y2="88"></line><circle class="day-ahead-curve-trace-point" cx="28" cy="88" r="3"></circle><text class="day-ahead-curve-trace-label" x="34" y="16"></text></g><text class="day-ahead-curve-axis-label" x="248" y="103" text-anchor="end">MW</text><text class="day-ahead-curve-axis-label" x="22" y="14" text-anchor="end">$/MWh</text></svg><span class="day-ahead-curve-readout" data-curve-readout="${resource.id}" aria-live="polite">Hover or drag the curve to inspect price.</span>`;
   }
 
   function dayAheadCurveSummary(resource) {
@@ -1723,7 +1723,10 @@
     const label = trace.querySelector(".day-ahead-curve-trace-label");
     label.setAttribute("x", Math.min(244, viewX + 5));
     label.setAttribute("y", Math.max(13, viewY - 7));
-    label.textContent = `${mw.toFixed(1)} MW @ $${price.toFixed(1)}/MWh`;
+    const readout = svg.parentElement?.querySelector(`[data-curve-readout="${resource.id}"]`);
+    const message = `${mw.toFixed(1)} MW @ $${price.toFixed(1)}/MWh`;
+    label.textContent = message;
+    if (readout) readout.textContent = message;
   }
 
   function renderCommitmentCalculationTable(level, result) {
@@ -3531,6 +3534,7 @@
     });
     els["day-ahead-offers"].addEventListener("pointerleave", () => {
       els["day-ahead-offers"].querySelectorAll(".day-ahead-curve-trace").forEach((trace) => { trace.hidden = true; });
+      els["day-ahead-offers"].querySelectorAll("[data-curve-readout]").forEach((readout) => { readout.textContent = "Hover or drag the curve to inspect price."; });
     });
     els["construction-full-reset-button"].addEventListener("click", resetConstructionProgress);
     els["construction-back-button"].addEventListener("click", renderConstructionSelect);
