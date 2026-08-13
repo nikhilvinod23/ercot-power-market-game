@@ -1,68 +1,43 @@
-# ERCOT Market Dashboard MVP
+# Power Market Solver
 
-A simple dark-mode static dashboard for learning how ERCOT grid conditions affect energy prices.
+An interactive, browser-based game for learning how electricity markets work. The game introduces merit-order dispatch, LMP pricing, congestion, transmission limits, reserves, unit commitment, continuous offer curves, probability forecasts, and day-ahead scheduling.
 
-## Open It
+## Run locally
 
-Run the local proxy/static server and open the page:
+Because the game is dependency-free, you can serve it with any static web server. For example:
 
 ```powershell
-python server.py
+python -m http.server 4173
 ```
 
-Then open `http://127.0.0.1:4173/index.html`.
+Then open `http://127.0.0.1:4173/`.
 
-The custom server is needed because browsers block direct cross-origin `fetch` calls from localhost to ERCOT. `server.py` only proxies the six ERCOT dashboard JSON files used by this MVP.
+Opening `index.html` directly also works in most browsers, but a local static server is recommended for a browser-like deployment environment.
 
-## What It Shows
+## Deploy
 
-- Grid snapshot: load, forecast miss, available capacity, reserves, net load, load/capacity ratio
-- Price monitor: live real-time hub prices
-- Fuel mix: generation by source
-- Fuel mix history: gas, wind, solar, coal, nuclear, storage, and other over the selected live time window
-- Fuel mix chart mode: line or stacked area
-- Renewables: live wind and solar output
-- Scarcity watch: reserve ratio, outages, ancillary service price signal
-- Congestion view: hub price spreads
-- Net load chart: load minus wind and solar over time
-- Weather page: Dallas, Houston, Austin, San Antonio, and Midland conditions
-- Forecast page: Open-Meteo weather forecast, weather-to-price risk estimate, and saved forecast-vs-actual comparisons
-- WeatherNext 2 status: documents the Google access paths needed before it can be connected
-- Price spike detector: flags hub prices above $100, $250, $500, and $1,000/MWh
-- Export controls: download locally stored snapshots as CSV or JSON
-- Trends page: 1-day, 3-day, and 7-day summaries from browser local storage
-- Market notes and generated conclusion prompts
+This repository contains only the game. The dashboard and its live-data proxy are intentionally not part of this project.
 
-## Data Status
+### GitHub Pages
 
-The app now pulls live data from ERCOT's open dashboard JSON endpoints:
+1. Open the repository's Settings → Pages.
+2. Set the publishing source to GitHub Actions.
+3. Push to `main`.
 
-- `supply-demand.json`
-- `daily-prc.json`
-- `fuel-mix.json`
-- `generation-outages.json`
-- `energy-storage-resources.json`
-- `system-wide-prices.json`
+The workflow in `.github/workflows/pages.yml` publishes the repository root. The game will be available at:
 
-The local server also proxies current weather from Open-Meteo for the Weather page. The app stores live snapshots in browser `localStorage` under `ercotDashboardSnapshots.v1`. The Trends view summarizes locally collected observations.
+`https://<username>.github.io/<repository>/`
 
-The Forecast page stores generated forecast records in browser `localStorage` under `ercotDashboardForecasts.v1`. Once the forecast target time passes and a nearby actual snapshot exists, the app compares predicted price/weather with observed price/weather.
+### Vercel
 
-WeatherNext 2 is not connected by default. Google exposes WeatherNext 2 forecast data through Earth Engine, BigQuery, Cloud Storage/Zarr, and Vertex AI early access, which require Google Cloud or Earth Engine setup rather than a simple anonymous API call.
+Import the repository into Vercel, choose the static/other project type, leave the build command empty, and use the repository root as the output directory. Vercel will serve `index.html` as the site entry point.
 
-Some deeper fields still need ERCOT Public API report ingestion:
+## Progress and theme
 
-- Day-ahead prices
-- Renewable forecasts
-- Ancillary service prices
-- Longer historical backfills
+Level progress, saved inputs, and the light/night theme are stored in browser `localStorage`. Progress is local to each browser and does not automatically transfer between localhost, GitHub Pages, Vercel, or different devices.
 
-Suggested refresh cadence:
+## Project files
 
-- Current dashboard data: every 5 minutes
-- Public API forecasts, day-ahead prices, ancillary services: hourly or after ERCOT posting
-- Historical reconciliation/backfill: nightly once a backend database exists
-
-## Implementation Notes
-
-The app is intentionally dependency-free so the first version is easy to inspect and modify. The charting is drawn with native canvas, and all dashboard rendering lives in `app.js`.
+- `index.html` — game markup and entry point
+- `game.js` — levels, market calculations, interactions, and saved progress
+- `game.css` — game styling and responsive layout
