@@ -1397,7 +1397,7 @@
     dayAheadStatuses: new Map(),
     dayAheadOffers: {},
     dayAheadResult: null,
-    theme: localStorage.getItem(THEME_KEY) === "night" ? "night" : "day"
+    theme: localStorage.getItem(THEME_KEY) === "day" ? "day" : "night"
   };
   const els = {};
 
@@ -3466,6 +3466,8 @@
   }
 
   function bindEvents() {
+    let constructionTrayPointerDrag = null;
+    let constructionTraySelection = null;
     els["lmp-mode-button"].addEventListener("click", renderLevelSelect);
     els["network-mode-button"].addEventListener("click", renderConstructionSelect);
     els["day-ahead-mode-button"].addEventListener("click", renderDayAheadSelect);
@@ -3556,6 +3558,38 @@
       renderConstructionView();
     });
     els["construction-reveal-button"].addEventListener("click", revealConstructionSolution);
+    els["construction-piece-tray"].addEventListener("pointerdown", (event) => {
+      const button = event.target.closest("[data-construction-piece-id], [data-construction-line-piece]");
+      if (!button || button.disabled) return;
+      const payload = button.dataset.constructionPieceId ? `node:${button.dataset.constructionPieceId}` : `line:${button.dataset.constructionLinePiece}`;
+      constructionTrayPointerDrag = { payload, pointerId: event.pointerId, moved: false };
+      if (button.setPointerCapture) button.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    });
+    els["construction-piece-tray"].addEventListener("pointermove", (event) => {
+      if (!constructionTrayPointerDrag || constructionTrayPointerDrag.pointerId !== event.pointerId) return;
+      constructionTrayPointerDrag.moved = true;
+      event.preventDefault();
+    });
+    els["construction-piece-tray"].addEventListener("pointerup", (event) => {
+      const drag = constructionTrayPointerDrag;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const rect = els["construction-map"].getBoundingClientRect();
+      const insideMap = event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom;
+      if (drag.moved && insideMap) {
+        const point = constructionMapPoint(event);
+        if (drag.payload.startsWith("node:")) addConstructionComponent(drag.payload.slice(5), point);
+        if (drag.payload.startsWith("line:")) placeConstructionLine(drag.payload.slice(5), point);
+      } else if (!drag.moved) {
+        constructionTraySelection = drag.payload;
+        els["construction-feedback"].className = "network-feedback";
+        els["construction-feedback"].textContent = "Piece selected. Tap the workspace to place it.";
+      }
+      try { event.target.releasePointerCapture(event.pointerId); } catch (error) { /* capture may already be released */ }
+      constructionTrayPointerDrag = null;
+      event.preventDefault();
+    });
+    els["construction-piece-tray"].addEventListener("pointercancel", () => { constructionTrayPointerDrag = null; });
     els["construction-piece-tray"].addEventListener("dragstart", (event) => {
       const button = event.target.closest("[data-construction-piece-id], [data-construction-line-piece]");
       if (!button) return;
@@ -3573,6 +3607,15 @@
     els["construction-map"].addEventListener("pointerdown", (event) => {
       const nodeGroup = event.target.closest("[data-construction-node]");
       const lineGroup = event.target.closest("[data-construction-line]");
+      if (constructionTraySelection && !nodeGroup && !lineGroup) {
+        const payload = constructionTraySelection;
+        constructionTraySelection = null;
+        const point = constructionMapPoint(event);
+        if (payload.startsWith("node:")) addConstructionComponent(payload.slice(5), point);
+        if (payload.startsWith("line:")) placeConstructionLine(payload.slice(5), point);
+        event.preventDefault();
+        return;
+      }
       if (event.button === 2 && (nodeGroup || lineGroup)) {
         event.preventDefault();
         returnConstructionPiece(nodeGroup ? "node" : "line", nodeGroup?.dataset.constructionNode || lineGroup?.dataset.constructionLine);
