@@ -2948,10 +2948,17 @@
   }
 
   function renderMap(level, shownAnswers = state.answers) {
+    const verticalMobileMap = window.matchMedia?.("(max-width: 760px)").matches === true;
+    const mapPoint = (point) => verticalMobileMap
+      ? { x: 500 - point.y, y: point.x }
+      : { x: point.x, y: point.y };
+    if (els["network-map"]) {
+      els["network-map"].setAttribute("viewBox", verticalMobileMap ? "0 0 500 1000" : "0 0 1000 500");
+    }
     const positions = new Map([
-      ...level.resources.map((resource) => [resource.name, { x: resource.x, y: resource.y }]),
-      ...level.buses.map((bus) => [bus.name, { x: bus.x, y: bus.y }]),
-      ...level.loads.map((load) => [load.name, { x: load.x, y: load.y }])
+      ...level.resources.map((resource) => [resource.name, mapPoint(resource)]),
+      ...level.buses.map((bus) => [bus.name, mapPoint(bus)]),
+      ...level.loads.map((load) => [load.name, mapPoint(load)])
     ]);
     const connectionSegments = level.connections.map((connection) => {
       const from = positions.get(connection.from);
@@ -3067,24 +3074,33 @@
       const hitHeight = Math.abs(y2 - y1) + 24;
       return `<g class="map-connection-group ${statusClass} ${activeClass}" data-target-kind="connection" data-target-id="${connection.id}" tabindex="0" aria-label="${lineLabel} transmission line"><line class="map-connection" data-target-kind="connection" data-target-id="${connection.id}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"></line>${lineDetails}<rect class="map-connection-hit" data-target-kind="connection" data-target-id="${connection.id}" x="${hitX}" y="${hitY}" width="${hitWidth}" height="${hitHeight}" aria-hidden="true"></rect></g>`;
     }).join("");
-    const resourceMarkup = level.resources.map((resource) => `<g class="map-node-group" data-target-kind="resource" data-target-id="${resource.id}" tabindex="0" aria-label="${resource.name}">
-      <circle class="map-node-circle resource-card" cx="${resource.x}" cy="${resource.y}" r="58"></circle>
-      <text class="map-node-name" x="${resource.x}" y="${resource.y - 12}" text-anchor="middle">${resource.name}</text>
-      <text class="map-node-meta" x="${resource.x}" y="${resource.y + 8}" text-anchor="middle">${resource.capacity} MW</text>
-      <text class="map-node-price" x="${resource.x}" y="${resource.y + 27}" text-anchor="middle">${formatMoney(resource.offer)}/MWh</text>
-    </g>`).join("");
-    const busMarkup = level.buses.map((bus) => `<g class="map-node-group status-${targetStatus("bus", bus.id)} ${isActiveTarget("bus", bus.id) ? "is-active" : ""}" data-target-kind="bus" data-target-id="${bus.id}" tabindex="0" aria-label="${bus.name}">
-      <circle class="map-node-circle bus-card" cx="${bus.x}" cy="${bus.y}" r="64"></circle>
-      <text class="map-node-name" x="${bus.x}" y="${bus.y - 12}" text-anchor="middle">${bus.name}</text>
-      <text class="map-node-meta" x="${bus.x}" y="${bus.y + 9}" text-anchor="middle">LMP</text>
-      <text class="map-node-price" x="${bus.x}" y="${bus.y + 29}" text-anchor="middle">${nodeLmpValue(shownAnswers[`lmp:${bus.id}`])}</text>
-    </g>`).join("");
-    const loadMarkup = level.loads.map((load) => `<g class="map-node-group status-${targetStatus("load", load.id)} ${isActiveTarget("load", load.id) ? "is-active" : ""}" data-target-kind="load" data-target-id="${load.id}" tabindex="0" aria-label="${load.name}">
-      <circle class="map-node-circle load-card" cx="${load.x}" cy="${load.y}" r="64"></circle>
-      <text class="map-node-name" x="${load.x}" y="${load.y - 12}" text-anchor="middle">${load.name}</text>
-      <text class="map-node-load" x="${load.x}" y="${load.y + 9}" text-anchor="middle">${load.demand} MW demand</text>
-      <text class="map-node-price" x="${load.x}" y="${load.y + 29}" text-anchor="middle">LMP ${nodeLmpValue(shownAnswers[`lmp:${load.id}`])}</text>
-    </g>`).join("");
+    const resourceMarkup = level.resources.map((resource) => {
+      const point = positions.get(resource.name);
+      return `<g class="map-node-group" data-target-kind="resource" data-target-id="${resource.id}" tabindex="0" aria-label="${resource.name}">
+      <circle class="map-node-circle resource-card" cx="${point.x}" cy="${point.y}" r="58"></circle>
+      <text class="map-node-name" x="${point.x}" y="${point.y - 12}" text-anchor="middle">${resource.name}</text>
+      <text class="map-node-meta" x="${point.x}" y="${point.y + 8}" text-anchor="middle">${resource.capacity} MW</text>
+      <text class="map-node-price" x="${point.x}" y="${point.y + 27}" text-anchor="middle">${formatMoney(resource.offer)}/MWh</text>
+    </g>`;
+    }).join("");
+    const busMarkup = level.buses.map((bus) => {
+      const point = positions.get(bus.name);
+      return `<g class="map-node-group status-${targetStatus("bus", bus.id)} ${isActiveTarget("bus", bus.id) ? "is-active" : ""}" data-target-kind="bus" data-target-id="${bus.id}" tabindex="0" aria-label="${bus.name}">
+      <circle class="map-node-circle bus-card" cx="${point.x}" cy="${point.y}" r="64"></circle>
+      <text class="map-node-name" x="${point.x}" y="${point.y - 12}" text-anchor="middle">${bus.name}</text>
+      <text class="map-node-meta" x="${point.x}" y="${point.y + 9}" text-anchor="middle">LMP</text>
+      <text class="map-node-price" x="${point.x}" y="${point.y + 29}" text-anchor="middle">${nodeLmpValue(shownAnswers[`lmp:${bus.id}`])}</text>
+    </g>`;
+    }).join("");
+    const loadMarkup = level.loads.map((load) => {
+      const point = positions.get(load.name);
+      return `<g class="map-node-group status-${targetStatus("load", load.id)} ${isActiveTarget("load", load.id) ? "is-active" : ""}" data-target-kind="load" data-target-id="${load.id}" tabindex="0" aria-label="${load.name}">
+      <circle class="map-node-circle load-card" cx="${point.x}" cy="${point.y}" r="64"></circle>
+      <text class="map-node-name" x="${point.x}" y="${point.y - 12}" text-anchor="middle">${load.name}</text>
+      <text class="map-node-load" x="${point.x}" y="${point.y + 9}" text-anchor="middle">${load.demand} MW demand</text>
+      <text class="map-node-price" x="${point.x}" y="${point.y + 29}" text-anchor="middle">LMP ${nodeLmpValue(shownAnswers[`lmp:${load.id}`])}</text>
+    </g>`;
+    }).join("");
     els["map-connections"].innerHTML = connectionMarkup;
     els["map-resources"].innerHTML = resourceMarkup;
     els["map-buses"].innerHTML = busMarkup;
@@ -3327,10 +3343,10 @@
     const kept = {};
     const solution = level.solution || { lmp: level.expectedLmp, flows: Object.fromEntries(level.connections.filter((connection) => connection.type === "transmission").map((connection) => [connection.id, connection.expectedFlow])) };
     [...level.buses, ...level.loads].forEach((node) => {
-      if (within(answers.lmp[node.id], solution.lmp[node.id], 5)) kept[`lmp:${node.id}`] = answers.lmp[node.id];
+      if (within(answers.lmp[node.id], solution.lmp[node.id], 5)) kept[`lmp:${node.id}`] = solution.lmp[node.id];
     });
     level.connections.filter((connection) => connection.type === "transmission").forEach((connection) => {
-      if (within(answers.flows[connection.id], solution.flows[connection.id], 5)) kept[`flow:${connection.id}`] = answers.flows[connection.id];
+      if (within(answers.flows[connection.id], solution.flows[connection.id], 5)) kept[`flow:${connection.id}`] = solution.flows[connection.id];
     });
     return kept;
   }
@@ -3386,11 +3402,12 @@
       renderMap(level, state.answers);
       closeSolvePopover();
       els["network-feedback"].className = "network-feedback is-error";
-      els["network-feedback"].textContent = "Set every target. Correct values remain; incorrect values were cleared.";
+      els["network-feedback"].textContent = "Set every target. Correct values were filled; incorrect values were cleared.";
       return;
     }
     const status = classifyAnswers(level, answers);
     if (status) {
+      state.answers = retainWorkingAnswers(level, answers);
       state.statuses.set(level.id, status);
       saveProgress();
       renderMap(level, state.answers);
@@ -3406,7 +3423,7 @@
     renderMap(level, state.answers);
     closeSolvePopover();
     els["network-feedback"].className = "network-feedback is-error";
-    els["network-feedback"].textContent = "Some values were incorrect. Correct values remain; fix the red targets.";
+    els["network-feedback"].textContent = "Some values were incorrect. Correct values were filled; fix the red targets.";
     els["completion-panel"].hidden = true;
   }
 
@@ -3769,6 +3786,7 @@
     document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeSolvePopover(); });
     window.addEventListener("resize", () => {
       if (state.screen === "construction-level") renderConstructionMap();
+      if (state.screen === "level") renderMap(getLevel(), state.answers);
     });
     els["map-hover-popover"].addEventListener("mouseleave", hideHover);
     bindMapEvents();

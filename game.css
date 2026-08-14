@@ -234,6 +234,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--blue); outl
   .construction-line-piece { width: 100%; min-height: 56px; }
   .construction-workspace { min-height: 0; }
   .construction-map { height: auto; min-height: 320px; aspect-ratio: 1000 / 600; }
+  #network-map { min-height: 0; height: auto; aspect-ratio: 1 / 2; }
   .construction-inspector { min-width: 0; overflow-wrap: anywhere; }
   .construction-navigation, .day-ahead-navigation { position: sticky; bottom: 8px; z-index: 6; flex-wrap: nowrap; padding: 8px; margin-inline: -8px; background: var(--page); }
   .construction-nav-button, .day-ahead-navigation button { min-width: 0; flex: 1 1 0; padding-inline: 10px; }
@@ -347,7 +348,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--blue); outl
 .completion-panel strong, .completion-panel span { font-size: 0.88rem; }
 
 @media (max-width: 760px) {
-  .game-shell { width: min(100% - 22px, 620px); padding-top: 32px; }
+  .game-shell { width: min(100% - 22px, 620px); padding-top: 58px; }
   .home-screen h1 { margin-bottom: 48px; }
   .select-reset-button { right: 0; bottom: 0; margin: 0; }
   .level-circle { width: 116px; height: 116px; flex-basis: 116px; font-size: 3rem; }
@@ -357,7 +358,11 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--blue); outl
 }
 
 @media (max-width: 460px) {
-  .game-shell { width: calc(100% - 16px); padding-top: 28px; }
+  .game-shell { width: calc(100% - 16px); padding-top: 64px; }
+  .theme-toggle { top: 12px; right: 0; }
+  #level-screen .level-toolbar,
+  #construction-level-screen .level-toolbar,
+  #day-ahead-level-screen .level-toolbar { margin-top: 4px; }
   .home-screen h1, .mode-screen h1 { max-width: 100%; padding-inline: 42px; font-size: 2.2rem; overflow-wrap: anywhere; }
   .mode-screen h1 { margin-bottom: 42px; }
   .level-circles { gap: 18px; }
@@ -368,6 +373,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--blue); outl
   .day-ahead-requirement-box { padding-inline: 7px; }
   .day-ahead-requirement-box strong { font-size: 0.72rem; overflow-wrap: anywhere; }
   .construction-map { min-height: 280px; }
+  #network-map { min-height: 0; height: auto; aspect-ratio: 1 / 2; }
   .construction-palette { padding: 9px; }
   .construction-node-piece { width: 100%; height: 76px; }
   .construction-component { padding: 7px; font-size: 0.67rem; }
