@@ -2222,10 +2222,14 @@
   }
 
   function renderDayAheadNavigation() {
-    const previous = dayAheadLevels.find((candidate) => candidate.id === state.dayAheadLevelId - 1);
-    const next = dayAheadLevels.find((candidate) => candidate.id === state.dayAheadLevelId + 1);
-    els["day-ahead-prev-button"].disabled = !previous;
-    els["day-ahead-next-button"].disabled = !next || !isDayAheadUnlocked(next);
+    const current = getDayAheadLevel();
+    const previous = dayAheadLevels.find((candidate) => candidate.id === current.id - 1);
+    const next = dayAheadLevels.find((candidate) => candidate.id === current.id + 1);
+    const currentSolved = state.dayAheadStatuses.get(current.id) === "green";
+    els["day-ahead-prev-button"].hidden = !previous;
+    els["day-ahead-prev-button"].disabled = false;
+    els["day-ahead-next-button"].hidden = !next || !currentSolved || !isDayAheadUnlocked(next);
+    els["day-ahead-next-button"].disabled = false;
   }
 
   function launchDayAheadLevel(id) {
@@ -2386,8 +2390,11 @@
     const current = state.constructionLevelId;
     const previous = constructionLevels.find((level) => level.id === current - 1);
     const next = constructionLevels.find((level) => level.id === current + 1);
-    els["construction-prev-button"].disabled = !previous;
-    els["construction-next-button"].disabled = !next || !isConstructionUnlocked(next);
+    const currentSolved = state.constructionStatuses.get(current) === "green";
+    els["construction-prev-button"].hidden = !previous;
+    els["construction-prev-button"].disabled = false;
+    els["construction-next-button"].hidden = !next || !currentSolved || !isConstructionUnlocked(next);
+    els["construction-next-button"].disabled = false;
   }
 
   function launchConstructionLevel(id) {
