@@ -2222,10 +2222,14 @@
   }
 
   function renderDayAheadNavigation() {
-    const previous = dayAheadLevels.find((candidate) => candidate.id === state.dayAheadLevelId - 1);
-    const next = dayAheadLevels.find((candidate) => candidate.id === state.dayAheadLevelId + 1);
-    els["day-ahead-prev-button"].disabled = !previous;
-    els["day-ahead-next-button"].disabled = !next || !isDayAheadUnlocked(next);
+    const current = getDayAheadLevel();
+    const previous = dayAheadLevels.find((candidate) => candidate.id === current.id - 1);
+    const next = dayAheadLevels.find((candidate) => candidate.id === current.id + 1);
+    const currentSolved = state.dayAheadStatuses.get(current.id) === "green";
+    els["day-ahead-prev-button"].hidden = !previous;
+    els["day-ahead-prev-button"].disabled = false;
+    els["day-ahead-next-button"].hidden = !next || !currentSolved || !isDayAheadUnlocked(next);
+    els["day-ahead-next-button"].disabled = false;
   }
 
   function launchDayAheadLevel(id) {
@@ -2386,8 +2390,11 @@
     const current = state.constructionLevelId;
     const previous = constructionLevels.find((level) => level.id === current - 1);
     const next = constructionLevels.find((level) => level.id === current + 1);
-    els["construction-prev-button"].disabled = !previous;
-    els["construction-next-button"].disabled = !next || !isConstructionUnlocked(next);
+    const currentSolved = state.constructionStatuses.get(current) === "green";
+    els["construction-prev-button"].hidden = !previous;
+    els["construction-prev-button"].disabled = false;
+    els["construction-next-button"].hidden = !next || !currentSolved || !isConstructionUnlocked(next);
+    els["construction-next-button"].disabled = false;
   }
 
   function launchConstructionLevel(id) {
@@ -3032,27 +3039,31 @@
       const labelDirection = connection.labelSide === "below" ? -above : above;
       const lane = connection.type === "transmission" ? transmissionIndex++ : 0;
       const laneOffset = Number.isFinite(connection.labelOffset) ? connection.labelOffset : 50 + Math.floor(lane / 3) * 28;
+      const labelMetaOffset = verticalMobileMap ? 64 : -24;
+      const metaTangentOffset = verticalMobileMap ? 48 : 0;
       const tangentX = (x2 - x1) / lineDistance;
       const tangentY = (y2 - y1) / lineDistance;
       let labelX = midX + normalX * laneOffset * labelDirection;
       let labelY = midY + normalY * laneOffset * labelDirection;
-      let metaX = midX + normalX * (laneOffset - 24) * labelDirection;
-      let metaY = midY + normalY * (laneOffset - 24) * labelDirection;
+      let metaX = midX + normalX * (laneOffset + labelMetaOffset) * labelDirection + tangentX * metaTangentOffset;
+      let metaY = midY + normalY * (laneOffset + labelMetaOffset) * labelDirection + tangentY * metaTangentOffset;
       if (connection.type === "transmission") {
         const labelWidth = Math.max(lineLabel.length * 7, String(connection.capacity).length * 6) + 12;
         const preferredTangent = Number.isFinite(connection.labelTangent) ? connection.labelTangent : null;
         const tangentOffsets = preferredTangent === null ? [0, -36, 36, -72, 72] : [preferredTangent, 0, -36, 36, -72, 72];
-        const normalOffsets = [laneOffset, laneOffset + 24, laneOffset + 48];
+        const normalOffsets = verticalMobileMap
+          ? [laneOffset, laneOffset + 34, laneOffset + 68, laneOffset + 102]
+          : [laneOffset, laneOffset + 24, laneOffset + 48];
         let chosen = null;
         for (const normalOffset of normalOffsets) {
           for (const tangentOffset of tangentOffsets) {
             const candidateLabelX = midX + normalX * normalOffset * labelDirection + tangentX * tangentOffset;
             const candidateLabelY = midY + normalY * normalOffset * labelDirection + tangentY * tangentOffset;
-            const candidateMetaX = midX + normalX * (normalOffset - 24) * labelDirection + tangentX * tangentOffset;
-            const candidateMetaY = midY + normalY * (normalOffset - 24) * labelDirection + tangentY * tangentOffset;
+            const candidateMetaX = midX + normalX * (normalOffset + labelMetaOffset) * labelDirection + tangentX * (tangentOffset + metaTangentOffset);
+            const candidateMetaY = midY + normalY * (normalOffset + labelMetaOffset) * labelDirection + tangentY * (tangentOffset + metaTangentOffset);
             const labelBox = { x: candidateLabelX - labelWidth / 2, y: candidateLabelY - 14, width: labelWidth, height: 17 };
             const metaBox = { x: candidateMetaX - labelWidth / 2, y: candidateMetaY - 11, width: labelWidth, height: 14 };
-            if (clearOfNodes(labelBox) && clearOfNodes(metaBox) && clearOfLines(labelBox, connection.id) && clearOfLines(metaBox, connection.id) && !labelBoxes.some((box) => overlaps(labelBox, box.label) || overlaps(labelBox, box.meta) || overlaps(metaBox, box.label) || overlaps(metaBox, box.meta))) {
+            if (clearOfNodes(labelBox) && clearOfNodes(metaBox) && clearOfLines(labelBox, connection.id) && clearOfLines(metaBox, connection.id) && !overlaps(labelBox, metaBox, verticalMobileMap ? 2 : 0) && !labelBoxes.some((box) => overlaps(labelBox, box.label) || overlaps(labelBox, box.meta) || overlaps(metaBox, box.label) || overlaps(metaBox, box.meta))) {
               chosen = { candidateLabelX, candidateLabelY, candidateMetaX, candidateMetaY, labelBox, metaBox };
               break;
             }
@@ -3390,11 +3401,9 @@
 
   function checkNetwork() {
     const level = getLevel();
-    if (state.revealed) {
-      els["network-feedback"].className = "network-feedback is-close";
-      els["network-feedback"].textContent = "Correct values are revealed. Reset the level to try again.";
-      return;
-    }
+    // A revealed solution is still a valid submission. Let Check Answer grade
+    // the filled values so the normal completion and next-level flow applies.
+    state.revealed = false;
     const answers = readAnswers(level);
     state.checked = true;
     if (answers.missing.length) {
@@ -3459,19 +3468,6 @@
   }
 
   function bindMapEvents() {
-    els["network-map"].addEventListener("mouseover", (event) => {
-      const group = event.target.closest(".map-connection-group, .map-node-group");
-      if (!group || !els["network-map"].contains(group)) return;
-      if (event.relatedTarget && group.contains(event.relatedTarget)) return;
-      showHover(targetFromElement(group));
-    });
-    els["network-map"].addEventListener("mouseout", (event) => {
-      const group = event.target.closest(".map-connection-group, .map-node-group");
-      if (!group || (event.relatedTarget && (group.contains(event.relatedTarget) || els["map-hover-popover"].contains(event.relatedTarget)))) return;
-      hideHover();
-    });
-    els["network-map"].addEventListener("focusin", (event) => showHover(targetFromElement(event.target.closest(".map-connection-group, .map-node-group"))));
-    els["network-map"].addEventListener("focusout", hideHover);
     els["network-map"].addEventListener("click", (event) => {
       const group = event.target.closest(".map-connection-group, .map-node-group");
       if (!group) return;
