@@ -3390,11 +3390,9 @@
 
   function checkNetwork() {
     const level = getLevel();
-    if (state.revealed) {
-      els["network-feedback"].className = "network-feedback is-close";
-      els["network-feedback"].textContent = "Correct values are revealed. Reset the level to try again.";
-      return;
-    }
+    // A revealed solution is still a valid submission. Let Check Answer grade
+    // the filled values so the normal completion and next-level flow applies.
+    state.revealed = false;
     const answers = readAnswers(level);
     state.checked = true;
     if (answers.missing.length) {

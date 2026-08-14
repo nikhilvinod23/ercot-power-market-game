@@ -358,8 +358,8 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--blue); outl
 }
 
 @media (max-width: 460px) {
-  .game-shell { width: calc(100% - 16px); padding-top: 64px; }
-  .theme-toggle { top: 12px; right: 0; }
+  .game-shell { width: calc(100% - 16px); padding-top: 80px; }
+  .theme-toggle { top: 12px; right: 8px; }
   #level-screen .level-toolbar,
   #construction-level-screen .level-toolbar,
   #day-ahead-level-screen .level-toolbar { margin-top: 4px; }
