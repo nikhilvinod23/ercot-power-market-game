@@ -1423,6 +1423,7 @@
     dayAheadConceptDismissed: new Set(),
     lmpConceptDismissed: new Set(),
     constructionConceptDismissed: new Set(),
+    conceptsShown: new Set(),
     theme: localStorage.getItem(THEME_KEY) === "day" ? "day" : "night"
   };
   const els = {};
@@ -1813,13 +1814,13 @@
 
   function dayAheadConcept(level) {
     const topics = [];
-    if (level.id <= 1) topics.push(["Demand bids", "The orange line is the buyer's bid. In these first levels it is flat: the buyer values every MW equally, up to the displayed maximum demand.", "flat"]);
-    if (level.id >= 2) topics.push(["Network limits", "A transmission limit is a traffic limit on a power path. When the path fills, a bus may need a more expensive local generator, creating different prices.", "congestion"]);
-    if (level.id === 3 || level.id >= 8) topics.push(["Unit commitment", "Commitment means deciding whether a generator is available for the schedule. Starting a unit can cost money, so capacity and startup cost must be considered together.", "commitment"]);
-    if (level.id === 4 || level.id >= 8) topics.push(["Reserves", "Reserve is held-back capacity that can respond if conditions change. It is not counted as energy serving the load until it is needed.", "reserve"]);
-    if (level.id === 5 || level.id >= 6) topics.push(["Forecasts", "Forecasts describe possible demand and renewable output. Use the probabilities to estimate the expected conditions before choosing a schedule.", "forecast"]);
-    if (level.id >= 6) topics.push(["Declining demand bids", "At higher quantities the buyer may only be willing to pay less. The market clears the highest-value demand that can be served by the available offers.", "declining"]);
-    return topics[topics.length - 1] || ["Demand bids", "A demand bid shows how much load buyers are willing to accept at different prices.", "flat"];
+    if (level.id <= 1) topics.push(["Demand bids", "The orange line is the buyer's bid. In these first levels it is flat: the buyer values every MW equally, up to the displayed maximum demand.", "flat", "dam-flat"]);
+    if (level.id >= 2) topics.push(["Network limits", "A transmission limit is a traffic limit on a power path. When the path fills, a bus may need a more expensive local generator, creating different prices.", "congestion", "dam-congestion"]);
+    if (level.id === 3 || level.id >= 8) topics.push(["Unit commitment", "Commitment means deciding whether a generator is available for the schedule. Starting a unit can cost money, so capacity and startup cost must be considered together.", "commitment", "dam-commitment"]);
+    if (level.id === 4 || level.id >= 8) topics.push(["Reserves", "Reserve is held-back capacity that can respond if conditions change. It is not counted as energy serving the load until it is needed.", "reserve", "dam-reserve"]);
+    if (level.id === 5 || level.id >= 6) topics.push(["Forecasts", "Forecasts describe possible demand and renewable output. Use the probabilities to estimate the expected conditions before choosing a schedule.", "forecast", "dam-forecast"]);
+    if (level.id >= 6) topics.push(["Declining demand bids", "At higher quantities the buyer may only be willing to pay less. The market clears the highest-value demand that can be served by the available offers.", "declining", "dam-declining"]);
+    return topics[topics.length - 1] || ["Demand bids", "A demand bid shows how much load buyers are willing to accept at different prices.", "flat", "dam-flat"];
   }
 
   function conceptVisualMarkup(kind) {
@@ -1828,6 +1829,9 @@
     if (kind === "crr") return `<svg viewBox="0 0 390 145" role="img" aria-label="Financial hedge between two prices"><circle class="bus" cx="70" cy="72" r="25"></circle><circle class="load" cx="320" cy="72" r="25"></circle><line class="path" x1="98" y1="72" x2="292" y2="72"></line><text x="70" y="76" text-anchor="middle">$30</text><text x="320" y="76" text-anchor="middle">$60</text><text x="195" y="48" text-anchor="middle">price difference</text><text x="195" y="113" text-anchor="middle">CRR hedges the spread</text></svg>`;
     if (kind === "parallel") return `<svg viewBox="0 0 390 145" role="img" aria-label="Two parallel transmission corridors"><circle class="bus" cx="58" cy="72" r="23"></circle><circle class="load" cx="332" cy="72" r="23"></circle><path class="path" d="M82 61 C150 20 240 20 308 61"></path><path class="path" d="M82 83 C150 124 240 124 308 83"></path><text x="195" y="15" text-anchor="middle">corridor 1</text><text x="195" y="140" text-anchor="middle">corridor 2</text></svg>`;
     if (kind === "reliability") return `<svg viewBox="0 0 390 145" role="img" aria-label="Alternate route for reliability"><circle class="resource" cx="52" cy="72" r="22"></circle><circle class="load" cx="338" cy="72" r="22"></circle><path class="path" d="M76 60 L314 60"></path><path class="path" d="M76 84 L314 84"></path><line x1="195" y1="48" x2="195" y2="96" stroke="#ff3b30" stroke-width="8"></line><text x="195" y="28" text-anchor="middle">one path can fail</text><text x="195" y="130" text-anchor="middle">alternate path keeps load served</text></svg>`;
+    if (kind === "network") return `<svg viewBox="0 0 390 145" role="img" aria-label="Generator hub and loads connected in a network"><circle class="resource" cx="48" cy="72" r="22"></circle><circle class="bus" cx="195" cy="72" r="25"></circle><circle class="load" cx="342" cy="38" r="20"></circle><circle class="load" cx="342" cy="106" r="20"></circle><line class="path" x1="72" y1="72" x2="168" y2="72"></line><line class="path" x1="220" y1="64" x2="322" y2="42"></line><line class="path" x1="220" y1="80" x2="322" y2="102"></line><text x="48" y="76" text-anchor="middle">gen</text><text x="195" y="76" text-anchor="middle">hub</text><text x="342" y="42" text-anchor="middle">load</text><text x="342" y="110" text-anchor="middle">load</text><text x="195" y="137" text-anchor="middle">connect every source to every served load</text></svg>`;
+    if (kind === "supply") return `<svg viewBox="0 0 390 145" role="img" aria-label="Rising generator offer curve"><line class="axis" x1="48" y1="116" x2="350" y2="116"></line><line class="axis" x1="48" y1="116" x2="48" y2="22"></line><polyline class="supply" points="52,105 180,73 345,30"></polyline><text x="48" y="17">$/MWh</text><text x="350" y="137" text-anchor="end">MW</text><text x="58" y="106">low output</text><text x="235" y="40">higher output costs more</text></svg>`;
+    if (kind === "market") return `<svg viewBox="0 0 390 145" role="img" aria-label="Supply and demand curves crossing"><line class="axis" x1="48" y1="116" x2="350" y2="116"></line><line class="axis" x1="48" y1="116" x2="48" y2="22"></line><polyline class="supply" points="52,106 345,30"></polyline><polyline class="curve" points="52,34 345,108"></polyline><circle fill="#ff9500" cx="195" cy="70" r="5"></circle><text x="48" y="17">$/MWh</text><text x="350" y="137" text-anchor="end">MW</text><text x="206" y="62">clearing point</text></svg>`;
     if (kind === "congestion") return `<svg viewBox="0 0 390 145" role="img" aria-label="Two buses connected by a limited path"><circle class="resource" cx="55" cy="72" r="24"></circle><circle class="load" cx="335" cy="72" r="24"></circle><line class="path" x1="82" y1="72" x2="308" y2="72"></line><text x="55" y="76" text-anchor="middle">cheap</text><text x="335" y="76" text-anchor="middle">load</text><text x="195" y="48" text-anchor="middle">limited path</text><text x="195" y="112" text-anchor="middle">full path → local price rises</text></svg>`;
     if (kind === "commitment") return `<svg viewBox="0 0 390 145" role="img" aria-label="Generator commitment switch"><rect class="resource" x="45" y="43" width="125" height="58" rx="29"></rect><circle fill="#ffffff" cx="140" cy="72" r="21"></circle><text x="107" y="132" text-anchor="middle">unit OFF / ON</text><text x="270" y="60" text-anchor="middle">start-up</text><text x="270" y="82" text-anchor="middle">cost</text><text x="270" y="104" text-anchor="middle">+ available capacity</text></svg>`;
     if (kind === "reserve") return `<svg viewBox="0 0 390 145" role="img" aria-label="Energy and reserve capacity"><rect class="resource" x="42" y="48" width="180" height="42"></rect><rect fill="#34c759" x="222" y="48" width="90" height="42"></rect><text x="132" y="75" text-anchor="middle" fill="#fff">energy</text><text x="267" y="75" text-anchor="middle">reserve</text><text x="195" y="122" text-anchor="middle">held back for surprises</text></svg>`;
@@ -1845,6 +1849,8 @@
 
   function showDayAheadConcept() {
     const level = getDayAheadLevel();
+    const concept = dayAheadConcept(level);
+    state.conceptsShown.add(conceptIdentity("day-ahead", concept));
     renderDayAheadConcept(level);
     els["day-ahead-concept-modal"].hidden = false;
   }
@@ -1855,19 +1861,22 @@
   }
 
   function lmpConcept(level) {
-    if (level.id === 0) return ["Locational marginal price", "LMP is the price of serving one more megawatt at a location. The last generator needed to serve the load sets that price.", "lmp"];
-    if (level.id === 1) return ["Power flows", "Electricity follows the available paths. The flow on a line must balance what enters a node with what leaves it.", "flow"];
-    if (level.id === 2) return ["Congestion", "When a line reaches its limit, cheaper power cannot move farther through it. The next available local generator can set a higher LMP.", "congestion"];
-    if (level.id === 3) return ["CRRs", "A congestion revenue right is a financial hedge for a price difference between two locations. It does not create a new wire or generator.", "crr"];
-    return ["Network constraints", "The map shows where generation, demand, and transmission limits interact. Each node can have its own price when the network is constrained.", "network"];
+    if (level.id <= 1) return ["Marginal pricing", "Start with the cheapest generators, then ask which generator supplies the next megawatt. That marginal offer becomes the LMP shown at the connected locations.", "lmp", "lmp-marginal"];
+    if (level.id === 2) return ["Supply curves", "A generator's offer can change as its output changes. Read the curve at the chosen MW, then use the highest accepted marginal offer as the price.", "supply", "lmp-curves"];
+    if (level.id === 3 || level.id === 8) return ["Congestion", "When a line reaches its limit, cheaper power cannot move farther through it. The next available local generator can set a higher LMP.", "congestion", "lmp-congestion"];
+    if (level.id === 4) return ["CRRs", "A congestion revenue right is a financial hedge for a price difference between two locations. It does not create a new wire or generator.", "crr", "lmp-crr"];
+    if (level.id === 5) return ["Day-ahead scheduling", "The day-ahead schedule chooses generator output and transmission flows before the operating hour. It is a plan that can be compared with what happens in real time.", "network", "lmp-day-ahead"];
+    if (level.id === 6 || level.id === 7) return ["Continuous offer curves", "The offer curve gives the price for each output level. Move along the curve rather than treating the generator as one fixed-price block.", "supply", "lmp-curves"];
+    if (level.id === 9 || level.id === 10) return ["Demand and supply curves", "The market compares buyer willingness to pay with generator offers. The crossing point shows which quantity clears and which offer is marginal.", "market", "lmp-demand"];
+    return ["Network constraints", "The map shows where generation, demand, and transmission limits interact. Each node can have its own price when the network is constrained.", "network", "lmp-network"];
   }
 
   function constructionConcept(level) {
-    if (level.id === 0) return ["Build a connected path", "Place every circle in the workspace, then place each line so the generator can reach the load through the grid node. Use every piece.", "network"];
-    if (level.id === 1) return ["Transmission capacity", "Each line has a maximum capacity. A valid design must carry the required flow without exceeding any line's limit.", "flow"];
-    if (level.id === 2) return ["Parallel corridors", "Two different lines can connect the same pair of nodes. They are separate corridors, so their capacities add without overlapping visually.", "parallel"];
-    if (level.id === 3) return ["Loops and alternate paths", "A loop gives electricity another route if one path becomes unavailable. Keep every load connected while respecting each line's capacity.", "network"];
-    return ["Reliability", "A reliable network still serves every load after the listed contingency. Leave enough alternate capacity for the system to keep operating.", "reliability"];
+    if (level.id === 0) return ["Build a connected path", "Place every circle in the workspace, then place each line so the generator can reach the load through the grid node. Use every piece.", "network", "construction-path"];
+    if (level.id <= 1) return ["Transmission capacity", "Each line has a maximum capacity. A valid design must carry the required flow without exceeding any line's limit.", "flow", "construction-capacity"];
+    if (level.id === 2 || level.id === 7) return ["Parallel corridors", "Two different lines can connect the same pair of nodes. They are separate corridors, so their capacities add without overlapping visually.", "parallel", "construction-parallel"];
+    if (level.id === 3 || level.id === 8) return ["Loops and alternate paths", "A loop gives electricity another route if one path becomes unavailable. Keep every load connected while respecting each line's capacity.", "network", "construction-loop"];
+    return ["Reliability", "A reliable network still serves every load after the listed contingency. Leave enough alternate capacity for the system to keep operating.", "reliability", "construction-reliability"];
   }
 
   function renderConceptModal(modalPrefix, concept) {
@@ -1876,8 +1885,14 @@
     els[`${modalPrefix}-concept-visual`].innerHTML = conceptVisualMarkup(concept[2]);
   }
 
+  function conceptIdentity(mode, concept) {
+    return `${mode}:${concept[3] || concept[0]}`;
+  }
+
   function showLmpConcept() {
-    renderConceptModal("lmp", lmpConcept(getLevel()));
+    const concept = lmpConcept(getLevel());
+    state.conceptsShown.add(conceptIdentity("lmp", concept));
+    renderConceptModal("lmp", concept);
     els["lmp-concept-modal"].hidden = false;
   }
 
@@ -1887,7 +1902,9 @@
   }
 
   function showConstructionConcept() {
-    renderConceptModal("construction", constructionConcept(getConstructionLevel()));
+    const concept = constructionConcept(getConstructionLevel());
+    state.conceptsShown.add(conceptIdentity("construction", concept));
+    renderConceptModal("construction", concept);
     els["construction-concept-modal"].hidden = false;
   }
 
@@ -2438,8 +2455,9 @@
     renderDayAheadStack(level);
     renderDayAheadResult();
     renderDayAheadNavigation();
+    const dayAheadTopic = dayAheadConcept(level);
     renderDayAheadConcept(level);
-    if (!state.dayAheadConceptDismissed.has(level.id)) window.setTimeout(showDayAheadConcept, 0);
+    if (!state.conceptsShown.has(conceptIdentity("day-ahead", dayAheadTopic))) window.setTimeout(showDayAheadConcept, 0);
   }
 
   function renderForecastHedgeForecast(level) {
@@ -3071,8 +3089,9 @@
     els["construction-level-title"].textContent = getConstructionLevel(id).title;
     els["construction-level-description"].textContent = getConstructionLevel(id).description;
     renderConstructionView();
-    renderConceptModal("construction", constructionConcept(getConstructionLevel(id)));
-    if (!state.constructionConceptDismissed.has(id)) window.setTimeout(showConstructionConcept, 0);
+    const constructionTopic = constructionConcept(getConstructionLevel(id));
+    renderConceptModal("construction", constructionTopic);
+    if (!state.conceptsShown.has(conceptIdentity("construction", constructionTopic))) window.setTimeout(showConstructionConcept, 0);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -3103,8 +3122,9 @@
     els["level-select-screen"].hidden = true;
     els["level-screen"].hidden = false;
     renderLevelPage();
-    renderConceptModal("lmp", lmpConcept(getLevel(id)));
-    if (!state.lmpConceptDismissed.has(id)) window.setTimeout(showLmpConcept, 0);
+    const lmpTopic = lmpConcept(getLevel(id));
+    renderConceptModal("lmp", lmpTopic);
+    if (!state.conceptsShown.has(conceptIdentity("lmp", lmpTopic))) window.setTimeout(showLmpConcept, 0);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
