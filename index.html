@@ -34,13 +34,14 @@
           <h2 id="day-ahead-level-title">Level 0: Single-hour clearing</h2>
           <div class="toolbar-actions">
             <button type="button" class="toolbar-button" id="day-ahead-reset-button" aria-label="Reset day-ahead level">&#8635;</button>
+            <button type="button" class="toolbar-button concept-help-button" id="day-ahead-help-button" aria-label="Explain this level">?</button>
           </div>
         </header>
-        <p class="day-ahead-instruction"><strong>Rules:</strong> Set the MW for each resource, then run the day-ahead market. Follow the objective described for the level.</p>
+        <p class="day-ahead-instruction"><strong>Rules:</strong> Set the MW for each resource, then run the day-ahead market. The demand bid never exceeds the displayed maximum demand.</p>
         <p id="day-ahead-level-description" class="day-ahead-level-description"></p>
         <div class="day-ahead-summary">
           <div class="day-ahead-requirement-box"><span>Operating hours</span><strong id="day-ahead-hours-summary">1</strong></div>
-          <div class="day-ahead-requirement-box"><span>Load requirement</span><strong id="day-ahead-demand">70 MW</strong></div>
+          <div class="day-ahead-requirement-box"><span>Maximum demand bid</span><strong id="day-ahead-demand">70 MW</strong></div>
           <div class="day-ahead-requirement-box"><span>Reserve requirement</span><strong id="day-ahead-reserve-summary">None</strong></div>
           <div class="day-ahead-requirement-box"><span>Transmission limit</span><strong id="day-ahead-network-summary">None — single bus</strong></div>
         </div>
@@ -53,6 +54,7 @@
           </section>
           <section class="day-ahead-panel" aria-labelledby="day-ahead-stack-title">
             <h3 id="day-ahead-stack-title">Market clearing stack</h3>
+            <div id="day-ahead-demand-curve" class="day-ahead-demand-curve" aria-label="Demand bid curve"></div>
             <div id="day-ahead-stack" class="day-ahead-stack"></div>
             <div class="day-ahead-stack-axis"><span>0 MW</span><span id="day-ahead-stack-max">80 MW offered</span></div>
             <div class="day-ahead-actions">
@@ -66,6 +68,15 @@
         <div class="day-ahead-navigation" aria-label="Day-ahead level navigation">
           <button type="button" class="construction-nav-button" id="day-ahead-prev-button" disabled>&#8592; Previous</button>
           <button type="button" class="construction-nav-button" id="day-ahead-next-button" disabled>Next &#8594;</button>
+        </div>
+        <div id="day-ahead-concept-modal" class="concept-modal" hidden role="dialog" aria-modal="true" aria-labelledby="day-ahead-concept-title">
+          <div class="concept-modal-card">
+            <button type="button" class="concept-modal-close" data-close-day-ahead-concept aria-label="Close explanation">×</button>
+            <h3 id="day-ahead-concept-title"></h3>
+            <p id="day-ahead-concept-body"></p>
+            <div id="day-ahead-concept-visual" class="concept-visual"></div>
+            <button type="button" class="check-button concept-modal-done" data-close-day-ahead-concept>Got it</button>
+          </div>
         </div>
       </section>
 

@@ -952,6 +952,29 @@
     }
   ];
 
+  // Demand bids describe how much of the existing forecast load buyers are
+  // willing to clear at each price. The final point is deliberately capped at
+  // the level's existing demand (or its existing zonal/hour demand).
+  function makeDemandBidCurve(maxMw, downward) {
+    const max = Math.max(0, Number(maxMw) || 0);
+    if (downward && max > 0) {
+      const middle = Math.max(0, Math.round(max * 0.55));
+      return { style: "linear", points: [{ mw: 0, price: 160 }, { mw: middle, price: 130 }, { mw: max, price: 100 }] };
+    }
+    return { style: "linear", points: [{ mw: 0, price: 100 }, { mw: max, price: 100 }] };
+  }
+
+  dayAheadLevels.forEach((level) => {
+    const downward = level.id >= 6;
+    if (level.loadByZone) {
+      level.demandBidCurvesByZone = Object.fromEntries(Object.entries(level.loadByZone).map(([zone, demand]) => [zone, makeDemandBidCurve(demand, downward)]));
+    } else if (level.hours) {
+      level.demandBidCurvesByHour = Object.fromEntries(level.hours.map((hour) => [hour.id, makeDemandBidCurve(hour.demand, downward)]));
+    } else {
+      level.demandBidCurve = makeDemandBidCurve(level.demand, downward);
+    }
+  });
+
   function numericCapacity(value) {
     if (value === Infinity || value === "∞") return Infinity;
     const text = String(value ?? "").trim().toLowerCase();
@@ -1397,13 +1420,14 @@
     dayAheadStatuses: new Map(),
     dayAheadOffers: {},
     dayAheadResult: null,
+    dayAheadConceptDismissed: new Set(),
     theme: localStorage.getItem(THEME_KEY) === "day" ? "day" : "night"
   };
   const els = {};
 
   function cacheElements() {
     [
-      "mode-select-screen", "lmp-mode-button", "network-mode-button", "day-ahead-mode-button", "mode-back-button", "day-ahead-select-screen", "day-ahead-mode-back-button", "day-ahead-full-reset-button", "day-ahead-level-circles", "day-ahead-level-message", "day-ahead-level-screen", "day-ahead-back-button", "day-ahead-reset-button", "day-ahead-level-title", "day-ahead-level-description", "day-ahead-hours-summary", "day-ahead-demand", "day-ahead-reserve-summary", "day-ahead-network-summary", "day-ahead-forecast", "day-ahead-offers", "day-ahead-stack", "day-ahead-stack-max", "day-ahead-run-button", "day-ahead-check-button", "day-ahead-reveal-button", "day-ahead-result", "day-ahead-prev-button", "day-ahead-next-button", "construction-select-screen", "construction-mode-back-button", "construction-full-reset-button", "construction-level-circles", "construction-level-screen", "construction-back-button", "construction-reset-button", "construction-level-title", "construction-level-description", "construction-piece-tray", "construction-map", "construction-lines", "construction-nodes", "construction-inspector", "construction-check-button", "construction-reveal-button", "construction-feedback", "construction-prev-button", "construction-next-button", "level-select-screen", "level-screen", "level-circles", "level-select-message",
+      "mode-select-screen", "lmp-mode-button", "network-mode-button", "day-ahead-mode-button", "mode-back-button", "day-ahead-select-screen", "day-ahead-mode-back-button", "day-ahead-full-reset-button", "day-ahead-level-circles", "day-ahead-level-message", "day-ahead-level-screen", "day-ahead-back-button", "day-ahead-reset-button", "day-ahead-help-button", "day-ahead-level-title", "day-ahead-level-description", "day-ahead-hours-summary", "day-ahead-demand", "day-ahead-reserve-summary", "day-ahead-network-summary", "day-ahead-forecast", "day-ahead-demand-curve", "day-ahead-offers", "day-ahead-stack", "day-ahead-stack-max", "day-ahead-run-button", "day-ahead-check-button", "day-ahead-reveal-button", "day-ahead-result", "day-ahead-prev-button", "day-ahead-next-button", "day-ahead-concept-modal", "day-ahead-concept-title", "day-ahead-concept-body", "day-ahead-concept-visual", "construction-select-screen", "construction-mode-back-button", "construction-full-reset-button", "construction-level-circles", "construction-level-screen", "construction-back-button", "construction-reset-button", "construction-level-title", "construction-level-description", "construction-piece-tray", "construction-map", "construction-lines", "construction-nodes", "construction-inspector", "construction-check-button", "construction-reveal-button", "construction-feedback", "construction-prev-button", "construction-next-button", "level-select-screen", "level-screen", "level-circles", "level-select-message",
       "back-button", "reset-level-button", "level-page-title", "map-connections", "map-resources",
       "map-buses", "map-loads", "network-map", "map-title", "map-description", "map-hover-popover",
       "solve-popover", "check-network-button", "network-feedback", "completion-panel", "completion-title",
@@ -1627,6 +1651,47 @@
     return `<svg class="day-ahead-curve" data-curve-resource="${resource.id}" data-curve-max-mw="${maxMw}" data-curve-max-price="${maxPrice}" viewBox="0 0 260 108" role="img" aria-label="${resource.name} offer curve. Hover or drag along the curve to inspect price."><line class="day-ahead-curve-axis" x1="28" y1="88" x2="248" y2="88"></line><line class="day-ahead-curve-axis" x1="28" y1="88" x2="28" y2="18"></line><polyline class="day-ahead-curve-line ${resource.className}" points="${polyline}"></polyline>${labels}<g class="day-ahead-curve-trace" hidden><line class="day-ahead-curve-trace-line" x1="28" y1="18" x2="28" y2="88"></line><circle class="day-ahead-curve-trace-point" cx="28" cy="88" r="3"></circle><text class="day-ahead-curve-trace-label" x="34" y="16"></text></g><text class="day-ahead-curve-axis-label" x="248" y="103" text-anchor="end">MW</text><text class="day-ahead-curve-axis-label" x="22" y="14" text-anchor="end">$/MWh</text></svg><span class="day-ahead-curve-readout" data-curve-readout="${resource.id}" aria-live="polite">Hover or drag the curve to inspect price.</span>`;
   }
 
+  function demandBidCurvePrice(curve, mw) {
+    const points = curve?.points || [];
+    if (points.length < 2) return 0;
+    const quantity = Math.max(0, Math.min(Number(points[points.length - 1].mw) || 0, Number(mw) || 0));
+    if (quantity <= Number(points[0].mw)) return Number(points[0].price) || 0;
+    for (let index = 1; index < points.length; index += 1) {
+      const previous = points[index - 1];
+      const current = points[index];
+      if (quantity <= Number(current.mw)) {
+        const width = Number(current.mw) - Number(previous.mw);
+        const fraction = width > 0 ? (quantity - Number(previous.mw)) / width : 0;
+        return (Number(previous.price) || 0) + ((Number(current.price) || 0) - (Number(previous.price) || 0)) * fraction;
+      }
+    }
+    return Number(points[points.length - 1].price) || 0;
+  }
+
+  function systemDemandBidPrice(level, mw) {
+    return level.demandBidCurve ? demandBidCurvePrice(level.demandBidCurve, mw) : Infinity;
+  }
+
+  function demandBidCurveMarkup(label, curve) {
+    if (!curve?.points?.length) return "";
+    const maxMw = Math.max(1, Number(curve.points[curve.points.length - 1].mw) || 0);
+    const maxPrice = Math.max(1, ...curve.points.map((point) => Number(point.price) || 0));
+    const pointToSvg = (point) => ({ x: 28 + (Number(point.mw) / maxMw) * 210, y: 91 - (Number(point.price) / maxPrice) * 67 });
+    const polyline = curve.points.map((point) => { const p = pointToSvg(point); return `${p.x},${p.y}`; }).join(" ");
+    const labels = curve.points.map((point, index) => { const p = pointToSvg(point); const anchor = index === 0 ? "start" : index === curve.points.length - 1 ? "end" : "middle"; return `<text class="day-ahead-demand-curve-point-label" x="${p.x}" y="${Math.max(12, p.y - 6)}" text-anchor="${anchor}">${Number(point.mw).toFixed(0)} MW · $${Number(point.price).toFixed(0)}</text>`; }).join("");
+    return `<div class="day-ahead-demand-curve-card">${label ? `<strong>${label}</strong>` : ""}<svg viewBox="0 0 255 116" role="img" aria-label="${label || "Demand"} bid curve"><line class="day-ahead-demand-curve-axis" x1="28" y1="91" x2="242" y2="91"></line><line class="day-ahead-demand-curve-axis" x1="28" y1="91" x2="28" y2="20"></line><polyline class="day-ahead-demand-curve-line" points="${polyline}"></polyline>${labels}<text class="day-ahead-demand-curve-axis-label" x="241" y="108" text-anchor="end">MW</text><text class="day-ahead-demand-curve-axis-label" x="22" y="15" text-anchor="end">$/MWh</text></svg><span class="day-ahead-demand-curve-caption">Maximum: ${maxMw.toFixed(0)} MW · lower bids may not clear.</span></div>`;
+  }
+
+  function renderDayAheadDemandCurve(level) {
+    const container = els["day-ahead-demand-curve"];
+    if (!container) return;
+    let cards = "";
+    if (level.demandBidCurvesByZone) cards = Object.entries(level.demandBidCurvesByZone).map(([zone, curve]) => demandBidCurveMarkup(`${zone[0].toUpperCase()}${zone.slice(1)} demand`, curve)).join("");
+    else if (level.demandBidCurvesByHour) cards = Object.entries(level.demandBidCurvesByHour).map(([hour, curve]) => demandBidCurveMarkup(`Hour ${hour}`, curve)).join("");
+    else cards = demandBidCurveMarkup("System demand", level.demandBidCurve);
+    container.innerHTML = `<span class="day-ahead-demand-curve-title">Demand bid curve</span><span class="day-ahead-demand-curve-note">Buyers accept energy up to the existing load cap. A lower line means the last MW is less valuable.</span><div class="day-ahead-demand-curve-grid">${cards}</div>`;
+  }
+
   function dayAheadCurveSummary(resource) {
     if (!Array.isArray(resource.offerCurve)) return `Offer price: $${resource.offer}/MWh`;
     return `Curve: ${resource.offerCurve.map((point) => `${point.mw} MW @ $${point.price}`).join(" → ")}`;
@@ -1744,6 +1809,44 @@
     return `<div class="day-ahead-calculation-table-wrap"><table class="day-ahead-calculation-table"><thead><tr>${header.map((cell) => `<th>${cell}</th>`).join("")}</tr></thead><tbody>${rows}<tr class="day-ahead-calculation-total">${totalCells.map((cell) => `<td>${cell}</td>`).join("")}</tr></tbody></table></div>`;
   }
 
+  function dayAheadConcept(level) {
+    const topics = [];
+    if (level.id <= 1) topics.push(["Demand bids", "The orange line is the buyer's bid. In these first levels it is flat: the buyer values every MW equally, up to the displayed maximum demand.", "flat"]);
+    if (level.id >= 2) topics.push(["Network limits", "A transmission limit is a traffic limit on a power path. When the path fills, a bus may need a more expensive local generator, creating different prices.", "congestion"]);
+    if (level.id === 3 || level.id >= 8) topics.push(["Unit commitment", "Commitment means deciding whether a generator is available for the schedule. Starting a unit can cost money, so capacity and startup cost must be considered together.", "commitment"]);
+    if (level.id === 4 || level.id >= 8) topics.push(["Reserves", "Reserve is held-back capacity that can respond if conditions change. It is not counted as energy serving the load until it is needed.", "reserve"]);
+    if (level.id === 5 || level.id >= 6) topics.push(["Forecasts", "Forecasts describe possible demand and renewable output. Use the probabilities to estimate the expected conditions before choosing a schedule.", "forecast"]);
+    if (level.id >= 6) topics.push(["Declining demand bids", "At higher quantities the buyer may only be willing to pay less. The market clears the highest-value demand that can be served by the available offers.", "declining"]);
+    return topics[topics.length - 1] || ["Demand bids", "A demand bid shows how much load buyers are willing to accept at different prices.", "flat"];
+  }
+
+  function conceptVisualMarkup(kind) {
+    if (kind === "congestion") return `<svg viewBox="0 0 390 145" role="img" aria-label="Two buses connected by a limited path"><circle class="resource" cx="55" cy="72" r="24"></circle><circle class="load" cx="335" cy="72" r="24"></circle><line class="path" x1="82" y1="72" x2="308" y2="72"></line><text x="55" y="76" text-anchor="middle">cheap</text><text x="335" y="76" text-anchor="middle">load</text><text x="195" y="48" text-anchor="middle">limited path</text><text x="195" y="112" text-anchor="middle">full path → local price rises</text></svg>`;
+    if (kind === "commitment") return `<svg viewBox="0 0 390 145" role="img" aria-label="Generator commitment switch"><rect class="resource" x="45" y="43" width="125" height="58" rx="29"></rect><circle fill="#ffffff" cx="140" cy="72" r="21"></circle><text x="107" y="132" text-anchor="middle">unit OFF / ON</text><text x="270" y="60" text-anchor="middle">start-up</text><text x="270" y="82" text-anchor="middle">cost</text><text x="270" y="104" text-anchor="middle">+ available capacity</text></svg>`;
+    if (kind === "reserve") return `<svg viewBox="0 0 390 145" role="img" aria-label="Energy and reserve capacity"><rect class="resource" x="42" y="48" width="180" height="42"></rect><rect fill="#34c759" x="222" y="48" width="90" height="42"></rect><text x="132" y="75" text-anchor="middle" fill="#fff">energy</text><text x="267" y="75" text-anchor="middle">reserve</text><text x="195" y="122" text-anchor="middle">held back for surprises</text></svg>`;
+    if (kind === "forecast") return `<svg viewBox="0 0 390 145" role="img" aria-label="Forecast outcomes with probabilities"><text x="40" y="44">20 MW wind</text><text x="40" y="91">40 MW wind</text><text x="280" y="44">60%</text><text x="280" y="91">40%</text><line class="axis" x1="205" y1="35" x2="260" y2="35"></line><line class="axis" x1="205" y1="82" x2="260" y2="82"></line><text x="195" y="127" text-anchor="middle">possible outcomes × probabilities</text></svg>`;
+    if (kind === "declining") return `<svg viewBox="0 0 390 145" role="img" aria-label="Downward demand bid curve"><line class="axis" x1="48" y1="116" x2="350" y2="116"></line><line class="axis" x1="48" y1="116" x2="48" y2="22"></line><polyline class="curve" points="52,30 180,58 345,105"></polyline><text x="48" y="17">$/MWh</text><text x="350" y="137" text-anchor="end">MW</text><text x="58" y="28">high value</text><text x="240" y="105">lower value</text></svg>`;
+    return `<svg viewBox="0 0 390 145" role="img" aria-label="Flat demand bid curve"><line class="axis" x1="48" y1="116" x2="350" y2="116"></line><line class="axis" x1="48" y1="116" x2="48" y2="22"></line><line class="curve" x1="52" y1="55" x2="345" y2="55"></line><text x="48" y="17">$/MWh</text><text x="350" y="137" text-anchor="end">MW</text><text x="200" y="42" text-anchor="middle">same value for every MW</text></svg>`;
+  }
+
+  function renderDayAheadConcept(level) {
+    const concept = dayAheadConcept(level);
+    els["day-ahead-concept-title"].textContent = concept[0];
+    els["day-ahead-concept-body"].textContent = concept[1];
+    els["day-ahead-concept-visual"].innerHTML = conceptVisualMarkup(concept[2]);
+  }
+
+  function showDayAheadConcept() {
+    const level = getDayAheadLevel();
+    renderDayAheadConcept(level);
+    els["day-ahead-concept-modal"].hidden = false;
+  }
+
+  function hideDayAheadConcept() {
+    state.dayAheadConceptDismissed.add(state.dayAheadLevelId);
+    els["day-ahead-concept-modal"].hidden = true;
+  }
+
   function renderDayAheadResult(message = "Run the market to calculate awards and the DAM LMP.", className = "") {
     els["day-ahead-result"].className = `day-ahead-result ${className}`.trim();
     els["day-ahead-result"].innerHTML = message;
@@ -1799,8 +1902,15 @@
     });
     blocks.sort((a, b) => a.marginalCost - b.marginalCost || a.resourceIndex - b.resourceIndex);
     const awards = Object.fromEntries(level.resources.map((resource) => [resource.id, 0]));
-    blocks.slice(0, level.demand).forEach((block) => { awards[block.resourceId] += 1; });
-    return { awards, feasible: blocks.length >= level.demand };
+    const demandCap = Math.max(0, Math.floor(Number(level.demand) || 0));
+    let clearedDemand = 0;
+    blocks.slice(0, demandCap).forEach((block) => {
+      const buyerValue = systemDemandBidPrice(level, clearedDemand + 1);
+      if (block.marginalCost > buyerValue + 0.000001) return;
+      awards[block.resourceId] += 1;
+      clearedDemand += 1;
+    });
+    return { awards, clearedDemand, feasible: blocks.length >= demandCap && clearedDemand > 0 };
   }
 
   function clippedValue(value, minimum, maximum) {
@@ -2078,11 +2188,15 @@
     if (["dispatch", "demandCurve"].includes(level.controlMode)) {
       const awards = Object.fromEntries(level.resources.map((resource) => [resource.id, Math.max(0, Math.min(resource.capacity, Number(values[resource.id]) || 0))]));
       const totalDispatch = Object.values(awards).reduce((sum, value) => sum + value, 0);
-      const remaining = Math.max(0, level.demand - totalDispatch);
+      const usesDemandBids = Boolean(level.demandBidCurve);
+      const remaining = usesDemandBids ? 0 : Math.max(0, level.demand - totalDispatch);
       const overage = Math.max(0, totalDispatch - level.demand);
       const totalCost = level.resources.reduce((sum, resource) => sum + dayAheadCurveCost(resource, awards[resource.id]), 0);
       const marginal = remaining <= 0 && overage <= 0 ? [...level.resources].filter((resource) => awards[resource.id] > 0).sort((a, b) => dayAheadCurvePrice(a, awards[a.id]) - dayAheadCurvePrice(b, awards[b.id])).at(-1) : null;
-      return { awards, remaining, overage, feasible: remaining <= 0.01 && overage <= 0.01, totalCost, lmp: marginal ? dayAheadCurvePrice(marginal, awards[marginal.id]) : null };
+      const lmp = marginal ? dayAheadCurvePrice(marginal, awards[marginal.id]) : null;
+      const bidValue = usesDemandBids && totalDispatch > 0 ? systemDemandBidPrice(level, totalDispatch) : Infinity;
+      const feasible = remaining <= 0.01 && overage <= 0.01 && (!usesDemandBids || totalDispatch <= 0 || lmp <= bidValue + 0.000001);
+      return { awards, remaining, overage, clearedDemand: totalDispatch, bidValue, feasible, totalCost, lmp };
     }
     if (["congestion", "congestionDemand"].includes(level.controlMode)) return solveCongestion(level, values);
     if (level.controlMode === "commitment") return evaluateCommitment(level, values);
@@ -2264,16 +2378,19 @@
     els["level-select-screen"].hidden = true;
     els["level-screen"].hidden = true;
     els["day-ahead-level-title"].textContent = `${level.title}: ${level.theme}`;
-    els["day-ahead-level-description"].textContent = level.description;
+    els["day-ahead-level-description"].textContent = `${level.description}${level.resources.some((resource) => Array.isArray(resource.offerCurve)) ? " Hover over the resources to see cost curves." : ""}`;
     els["day-ahead-hours-summary"].textContent = level.hours ? level.hours.map((hour) => `${hour.id}: ${hour.demand} MW`).join(" · ") : "1";
     els["day-ahead-demand"].textContent = level.loadLabel || (level.actualDemand !== undefined ? `${level.demand} MW DA · ${level.actualDemand} MW actual` : `${level.demand} MW`);
     els["day-ahead-reserve-summary"].textContent = level.reserveRequirement ? `${level.reserveRequirement} MW` : "None";
     els["day-ahead-network-summary"].textContent = level.networkLabel || "None — single bus";
     renderForecastHedgeForecast(level);
+    renderDayAheadDemandCurve(level);
     renderDayAheadOffers(level);
     renderDayAheadStack(level);
     renderDayAheadResult();
     renderDayAheadNavigation();
+    renderDayAheadConcept(level);
+    if (!state.dayAheadConceptDismissed.has(level.id)) window.setTimeout(showDayAheadConcept, 0);
   }
 
   function renderForecastHedgeForecast(level) {
@@ -3490,6 +3607,13 @@
     els["day-ahead-full-reset-button"].addEventListener("click", resetDayAheadProgress);
     els["day-ahead-back-button"].addEventListener("click", renderDayAheadSelect);
     els["day-ahead-reset-button"].addEventListener("click", resetDayAheadLevel);
+    els["day-ahead-help-button"].addEventListener("click", showDayAheadConcept);
+    els["day-ahead-concept-modal"].addEventListener("click", (event) => {
+      if (event.target === els["day-ahead-concept-modal"] || event.target.closest("[data-close-day-ahead-concept]")) hideDayAheadConcept();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !els["day-ahead-concept-modal"].hidden) hideDayAheadConcept();
+    });
     els["day-ahead-prev-button"].addEventListener("click", () => {
       const previous = dayAheadLevels.find((level) => level.id === state.dayAheadLevelId - 1);
       if (previous) openDayAheadLevel(previous.id);
