@@ -93,6 +93,7 @@
           <h2 id="construction-level-title">Level 0: Basic path</h2>
           <div class="toolbar-actions">
             <button type="button" class="toolbar-button" id="construction-reset-button" aria-label="Reset construction">&#8635;</button>
+            <button type="button" class="toolbar-button concept-help-button" id="construction-help-button" aria-label="Explain this level">?</button>
           </div>
         </header>
         <p class="construction-instruction"><strong>Rules:</strong> Use every piece. Drag the pieces from the starting box into the workspace. Lines already have their values.</p>
@@ -122,6 +123,15 @@
           <button type="button" class="construction-nav-button" id="construction-prev-button">&#8592; Previous</button>
           <button type="button" class="construction-nav-button" id="construction-next-button">Next &#8594;</button>
         </div>
+        <div id="construction-concept-modal" class="concept-modal" hidden role="dialog" aria-modal="true" aria-labelledby="construction-concept-title">
+          <div class="concept-modal-card">
+            <button type="button" class="concept-modal-close" data-close-construction-concept aria-label="Close explanation">×</button>
+            <h3 id="construction-concept-title"></h3>
+            <p id="construction-concept-body"></p>
+            <div id="construction-concept-visual" class="concept-visual"></div>
+            <button type="button" class="check-button concept-modal-done" data-close-construction-concept>Got it</button>
+          </div>
+        </div>
       </section>
 
       <section id="level-select-screen" class="home-screen" hidden aria-labelledby="game-title">
@@ -138,6 +148,7 @@
           <h2 id="level-page-title">Level 0</h2>
           <div class="toolbar-actions">
             <button type="button" class="toolbar-button" id="reset-level-button" aria-label="Reset level">&#8635;</button>
+            <button type="button" class="toolbar-button concept-help-button" id="lmp-help-button" aria-label="Explain this level">?</button>
           </div>
         </header>
 
@@ -173,6 +184,15 @@
             <button type="button" class="next-button" id="next-level-button">Next &#8594;</button>
           </div>
         </section>
+        <div id="lmp-concept-modal" class="concept-modal" hidden role="dialog" aria-modal="true" aria-labelledby="lmp-concept-title">
+          <div class="concept-modal-card">
+            <button type="button" class="concept-modal-close" data-close-lmp-concept aria-label="Close explanation">×</button>
+            <h3 id="lmp-concept-title"></h3>
+            <p id="lmp-concept-body"></p>
+            <div id="lmp-concept-visual" class="concept-visual"></div>
+            <button type="button" class="check-button concept-modal-done" data-close-lmp-concept>Got it</button>
+          </div>
+        </div>
       </section>
     </main>
   </body>

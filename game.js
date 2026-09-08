@@ -1421,13 +1421,15 @@
     dayAheadOffers: {},
     dayAheadResult: null,
     dayAheadConceptDismissed: new Set(),
+    lmpConceptDismissed: new Set(),
+    constructionConceptDismissed: new Set(),
     theme: localStorage.getItem(THEME_KEY) === "day" ? "day" : "night"
   };
   const els = {};
 
   function cacheElements() {
     [
-      "mode-select-screen", "lmp-mode-button", "network-mode-button", "day-ahead-mode-button", "mode-back-button", "day-ahead-select-screen", "day-ahead-mode-back-button", "day-ahead-full-reset-button", "day-ahead-level-circles", "day-ahead-level-message", "day-ahead-level-screen", "day-ahead-back-button", "day-ahead-reset-button", "day-ahead-help-button", "day-ahead-level-title", "day-ahead-level-description", "day-ahead-hours-summary", "day-ahead-demand", "day-ahead-reserve-summary", "day-ahead-network-summary", "day-ahead-forecast", "day-ahead-demand-curve", "day-ahead-offers", "day-ahead-stack", "day-ahead-stack-max", "day-ahead-run-button", "day-ahead-check-button", "day-ahead-reveal-button", "day-ahead-result", "day-ahead-prev-button", "day-ahead-next-button", "day-ahead-concept-modal", "day-ahead-concept-title", "day-ahead-concept-body", "day-ahead-concept-visual", "construction-select-screen", "construction-mode-back-button", "construction-full-reset-button", "construction-level-circles", "construction-level-screen", "construction-back-button", "construction-reset-button", "construction-level-title", "construction-level-description", "construction-piece-tray", "construction-map", "construction-lines", "construction-nodes", "construction-inspector", "construction-check-button", "construction-reveal-button", "construction-feedback", "construction-prev-button", "construction-next-button", "level-select-screen", "level-screen", "level-circles", "level-select-message",
+      "mode-select-screen", "lmp-mode-button", "network-mode-button", "day-ahead-mode-button", "mode-back-button", "day-ahead-select-screen", "day-ahead-mode-back-button", "day-ahead-full-reset-button", "day-ahead-level-circles", "day-ahead-level-message", "day-ahead-level-screen", "day-ahead-back-button", "day-ahead-reset-button", "day-ahead-help-button", "day-ahead-level-title", "day-ahead-level-description", "day-ahead-hours-summary", "day-ahead-demand", "day-ahead-reserve-summary", "day-ahead-network-summary", "day-ahead-forecast", "day-ahead-demand-curve", "day-ahead-offers", "day-ahead-stack", "day-ahead-stack-max", "day-ahead-run-button", "day-ahead-check-button", "day-ahead-reveal-button", "day-ahead-result", "day-ahead-prev-button", "day-ahead-next-button", "day-ahead-concept-modal", "day-ahead-concept-title", "day-ahead-concept-body", "day-ahead-concept-visual", "construction-select-screen", "construction-mode-back-button", "construction-full-reset-button", "construction-level-circles", "construction-level-screen", "construction-back-button", "construction-reset-button", "construction-help-button", "construction-level-title", "construction-level-description", "construction-piece-tray", "construction-map", "construction-lines", "construction-nodes", "construction-inspector", "construction-check-button", "construction-reveal-button", "construction-feedback", "construction-prev-button", "construction-next-button", "construction-concept-modal", "construction-concept-title", "construction-concept-body", "construction-concept-visual", "lmp-help-button", "lmp-concept-modal", "lmp-concept-title", "lmp-concept-body", "lmp-concept-visual", "level-select-screen", "level-screen", "level-circles", "level-select-message",
       "back-button", "reset-level-button", "level-page-title", "map-connections", "map-resources",
       "map-buses", "map-loads", "network-map", "map-title", "map-description", "map-hover-popover",
       "solve-popover", "check-network-button", "network-feedback", "completion-panel", "completion-title",
@@ -1821,6 +1823,11 @@
   }
 
   function conceptVisualMarkup(kind) {
+    if (kind === "lmp") return `<svg viewBox="0 0 390 145" role="img" aria-label="Generators stacked by price"><rect class="resource" x="48" y="86" width="82" height="30"></rect><rect fill="#34c759" x="130" y="62" width="98" height="54"></rect><rect fill="#ff3b30" x="228" y="35" width="106" height="81"></rect><line class="axis" x1="42" y1="118" x2="344" y2="118"></line><text x="89" y="105" text-anchor="middle" fill="#fff">cheap</text><text x="179" y="91" text-anchor="middle">middle</text><text x="281" y="78" text-anchor="middle" fill="#fff">marginal</text><text x="195" y="140" text-anchor="middle">last needed block sets LMP</text></svg>`;
+    if (kind === "flow") return `<svg viewBox="0 0 390 145" role="img" aria-label="Power flowing through nodes"><circle class="resource" cx="55" cy="72" r="24"></circle><circle class="bus" cx="195" cy="72" r="24"></circle><circle class="load" cx="335" cy="72" r="24"></circle><line class="path" x1="82" y1="72" x2="168" y2="72"></line><line class="path" x1="222" y1="72" x2="308" y2="72"></line><text x="55" y="76" text-anchor="middle">gen</text><text x="195" y="76" text-anchor="middle">node</text><text x="335" y="76" text-anchor="middle">load</text><text x="195" y="126" text-anchor="middle">flow in = flow out + local load</text></svg>`;
+    if (kind === "crr") return `<svg viewBox="0 0 390 145" role="img" aria-label="Financial hedge between two prices"><circle class="bus" cx="70" cy="72" r="25"></circle><circle class="load" cx="320" cy="72" r="25"></circle><line class="path" x1="98" y1="72" x2="292" y2="72"></line><text x="70" y="76" text-anchor="middle">$30</text><text x="320" y="76" text-anchor="middle">$60</text><text x="195" y="48" text-anchor="middle">price difference</text><text x="195" y="113" text-anchor="middle">CRR hedges the spread</text></svg>`;
+    if (kind === "parallel") return `<svg viewBox="0 0 390 145" role="img" aria-label="Two parallel transmission corridors"><circle class="bus" cx="58" cy="72" r="23"></circle><circle class="load" cx="332" cy="72" r="23"></circle><path class="path" d="M82 61 C150 20 240 20 308 61"></path><path class="path" d="M82 83 C150 124 240 124 308 83"></path><text x="195" y="15" text-anchor="middle">corridor 1</text><text x="195" y="140" text-anchor="middle">corridor 2</text></svg>`;
+    if (kind === "reliability") return `<svg viewBox="0 0 390 145" role="img" aria-label="Alternate route for reliability"><circle class="resource" cx="52" cy="72" r="22"></circle><circle class="load" cx="338" cy="72" r="22"></circle><path class="path" d="M76 60 L314 60"></path><path class="path" d="M76 84 L314 84"></path><line x1="195" y1="48" x2="195" y2="96" stroke="#ff3b30" stroke-width="8"></line><text x="195" y="28" text-anchor="middle">one path can fail</text><text x="195" y="130" text-anchor="middle">alternate path keeps load served</text></svg>`;
     if (kind === "congestion") return `<svg viewBox="0 0 390 145" role="img" aria-label="Two buses connected by a limited path"><circle class="resource" cx="55" cy="72" r="24"></circle><circle class="load" cx="335" cy="72" r="24"></circle><line class="path" x1="82" y1="72" x2="308" y2="72"></line><text x="55" y="76" text-anchor="middle">cheap</text><text x="335" y="76" text-anchor="middle">load</text><text x="195" y="48" text-anchor="middle">limited path</text><text x="195" y="112" text-anchor="middle">full path → local price rises</text></svg>`;
     if (kind === "commitment") return `<svg viewBox="0 0 390 145" role="img" aria-label="Generator commitment switch"><rect class="resource" x="45" y="43" width="125" height="58" rx="29"></rect><circle fill="#ffffff" cx="140" cy="72" r="21"></circle><text x="107" y="132" text-anchor="middle">unit OFF / ON</text><text x="270" y="60" text-anchor="middle">start-up</text><text x="270" y="82" text-anchor="middle">cost</text><text x="270" y="104" text-anchor="middle">+ available capacity</text></svg>`;
     if (kind === "reserve") return `<svg viewBox="0 0 390 145" role="img" aria-label="Energy and reserve capacity"><rect class="resource" x="42" y="48" width="180" height="42"></rect><rect fill="#34c759" x="222" y="48" width="90" height="42"></rect><text x="132" y="75" text-anchor="middle" fill="#fff">energy</text><text x="267" y="75" text-anchor="middle">reserve</text><text x="195" y="122" text-anchor="middle">held back for surprises</text></svg>`;
@@ -1845,6 +1852,48 @@
   function hideDayAheadConcept() {
     state.dayAheadConceptDismissed.add(state.dayAheadLevelId);
     els["day-ahead-concept-modal"].hidden = true;
+  }
+
+  function lmpConcept(level) {
+    if (level.id === 0) return ["Locational marginal price", "LMP is the price of serving one more megawatt at a location. The last generator needed to serve the load sets that price.", "lmp"];
+    if (level.id === 1) return ["Power flows", "Electricity follows the available paths. The flow on a line must balance what enters a node with what leaves it.", "flow"];
+    if (level.id === 2) return ["Congestion", "When a line reaches its limit, cheaper power cannot move farther through it. The next available local generator can set a higher LMP.", "congestion"];
+    if (level.id === 3) return ["CRRs", "A congestion revenue right is a financial hedge for a price difference between two locations. It does not create a new wire or generator.", "crr"];
+    return ["Network constraints", "The map shows where generation, demand, and transmission limits interact. Each node can have its own price when the network is constrained.", "network"];
+  }
+
+  function constructionConcept(level) {
+    if (level.id === 0) return ["Build a connected path", "Place every circle in the workspace, then place each line so the generator can reach the load through the grid node. Use every piece.", "network"];
+    if (level.id === 1) return ["Transmission capacity", "Each line has a maximum capacity. A valid design must carry the required flow without exceeding any line's limit.", "flow"];
+    if (level.id === 2) return ["Parallel corridors", "Two different lines can connect the same pair of nodes. They are separate corridors, so their capacities add without overlapping visually.", "parallel"];
+    if (level.id === 3) return ["Loops and alternate paths", "A loop gives electricity another route if one path becomes unavailable. Keep every load connected while respecting each line's capacity.", "network"];
+    return ["Reliability", "A reliable network still serves every load after the listed contingency. Leave enough alternate capacity for the system to keep operating.", "reliability"];
+  }
+
+  function renderConceptModal(modalPrefix, concept) {
+    els[`${modalPrefix}-concept-title`].textContent = concept[0];
+    els[`${modalPrefix}-concept-body`].textContent = concept[1];
+    els[`${modalPrefix}-concept-visual`].innerHTML = conceptVisualMarkup(concept[2]);
+  }
+
+  function showLmpConcept() {
+    renderConceptModal("lmp", lmpConcept(getLevel()));
+    els["lmp-concept-modal"].hidden = false;
+  }
+
+  function hideLmpConcept() {
+    state.lmpConceptDismissed.add(state.levelId);
+    els["lmp-concept-modal"].hidden = true;
+  }
+
+  function showConstructionConcept() {
+    renderConceptModal("construction", constructionConcept(getConstructionLevel()));
+    els["construction-concept-modal"].hidden = false;
+  }
+
+  function hideConstructionConcept() {
+    state.constructionConceptDismissed.add(state.constructionLevelId);
+    els["construction-concept-modal"].hidden = true;
   }
 
   function renderDayAheadResult(message = "Run the market to calculate awards and the DAM LMP.", className = "") {
@@ -3022,6 +3071,8 @@
     els["construction-level-title"].textContent = getConstructionLevel(id).title;
     els["construction-level-description"].textContent = getConstructionLevel(id).description;
     renderConstructionView();
+    renderConceptModal("construction", constructionConcept(getConstructionLevel(id)));
+    if (!state.constructionConceptDismissed.has(id)) window.setTimeout(showConstructionConcept, 0);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -3052,6 +3103,8 @@
     els["level-select-screen"].hidden = true;
     els["level-screen"].hidden = false;
     renderLevelPage();
+    renderConceptModal("lmp", lmpConcept(getLevel(id)));
+    if (!state.lmpConceptDismissed.has(id)) window.setTimeout(showLmpConcept, 0);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -3611,8 +3664,18 @@
     els["day-ahead-concept-modal"].addEventListener("click", (event) => {
       if (event.target === els["day-ahead-concept-modal"] || event.target.closest("[data-close-day-ahead-concept]")) hideDayAheadConcept();
     });
+    els["lmp-help-button"].addEventListener("click", showLmpConcept);
+    els["lmp-concept-modal"].addEventListener("click", (event) => {
+      if (event.target === els["lmp-concept-modal"] || event.target.closest("[data-close-lmp-concept]")) hideLmpConcept();
+    });
+    els["construction-help-button"].addEventListener("click", showConstructionConcept);
+    els["construction-concept-modal"].addEventListener("click", (event) => {
+      if (event.target === els["construction-concept-modal"] || event.target.closest("[data-close-construction-concept]")) hideConstructionConcept();
+    });
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && !els["day-ahead-concept-modal"].hidden) hideDayAheadConcept();
+      if (event.key === "Escape" && !els["lmp-concept-modal"].hidden) hideLmpConcept();
+      if (event.key === "Escape" && !els["construction-concept-modal"].hidden) hideConstructionConcept();
     });
     els["day-ahead-prev-button"].addEventListener("click", () => {
       const previous = dayAheadLevels.find((level) => level.id === state.dayAheadLevelId - 1);
