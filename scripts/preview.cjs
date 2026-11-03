@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 function start(port = 8765) {
   const root = path.resolve(__dirname, '..');
-  const allowed = new Set(['index.html', 'game.js', 'game.css', 'market-model.js', 'learning-guide.js']);
+  const allowed = new Set(['index.html', 'game.js', 'game.css', 'market-model.js', 'learning-guide.js', 'ui-polish.js']);
   const server = http.createServer((req, res) => {
     const file = new URL(req.url, 'http://localhost').pathname.slice(1) || 'index.html';
     if (!allowed.has(file)) { res.writeHead(404); res.end(); return; }

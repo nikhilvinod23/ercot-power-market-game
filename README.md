@@ -41,12 +41,14 @@ Level progress, saved inputs, and the light/night theme are stored in browser `l
 - `index.html` — game markup and entry point
 - `game.js` — levels, market calculations, interactions, and saved progress
 - `game.css` — game styling and responsive layout
+- `ui-polish.js` — consistent control labels, definition access, numeric inputs, and result presentation
 
 ## Teaching model and review checks
 
 Level 0 in each mode starts an anchored terminology guide once. The question-mark
-button and term buttons reopen it on any level. New terms are labelled when first
-introduced. Guide history is saved separately from scored progress.
+button and Definitions menu reopen it on any level. Each card defines one term;
+Previous and Next navigate, and the close button exits the guide. Guide history
+is saved separately from scored progress.
 
 Day-ahead curves clear against buyer value using continuous marginal offers.
 Intersecting offers are compared at their marginal output, rather than filling a

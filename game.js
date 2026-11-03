@@ -2923,9 +2923,31 @@
       const group = els["construction-nodes"].querySelector(`[data-construction-node="${node.id}"]`);
       if (group) group.setAttribute("transform", `translate(${node.x} ${node.y})`);
     });
+    showConstructionConnectionPreview();
+  }
+
+  function showConstructionConnectionPreview(point = null) {
+    const svg = els['construction-map'];
+    svg.querySelector('.construction-preview')?.remove();
+    svg.querySelectorAll('.is-connection-candidate').forEach(el => el.classList.remove('is-connection-candidate'));
+    const drag = state.construction.dragging;
+    const line = drag?.kind === 'line' ? state.construction.lines.find(l => l.id === drag.id) : null;
+    const geometry = line ? constructionLineGeometry(line, constructionPositions()) : null;
+    const fromPoint = geometry?.from || point;
+    if (!fromPoint || state.construction.nodes.length < 2) return;
+    const nearest = (p, excluded) => state.construction.nodes.filter(n => n.id !== excluded).sort((a,b) => Math.hypot(a.x-p.x,a.y-p.y)-Math.hypot(b.x-p.x,b.y-p.y))[0];
+    const from = nearest(fromPoint);
+    const to = nearest(geometry?.to || point, from.id);
+    if (geometry && (Math.hypot(from.x-geometry.from.x,from.y-geometry.from.y) >= 220 || Math.hypot(to.x-geometry.to.x,to.y-geometry.to.y) >= 220)) return;
+    [from,to].forEach(n => svg.querySelector(`[data-construction-node="${n.id}"]`)?.classList.add('is-connection-candidate'));
+    const preview = document.createElementNS('http://www.w3.org/2000/svg','line');
+    preview.setAttribute('class','construction-preview');
+    Object.entries({x1:from.x,y1:from.y,x2:to.x,y2:to.y}).forEach(([key,value])=>preview.setAttribute(key,value));
+    svg.append(preview);
   }
 
   function renderConstructionMap() {
+    els['construction-map'].querySelector('.construction-preview')?.remove();
     syncConstructionViewBox();
     const positions = constructionPositions();
     els["construction-lines"].innerHTML = state.construction.lines.filter((line) => line.inWorkspace).map((line) => {
@@ -2948,14 +2970,14 @@
   function renderConstructionInspector() {
     const selected = state.construction.selected;
     if (!selected) {
-      els["construction-inspector"].innerHTML = `Select a component or line for details.<div class="construction-inspector-actions"><button type="button" class="construction-clear-button" data-construction-action="clear">Clear all</button></div>`;
+      els["construction-inspector"].innerHTML = `Select a component or line for details.<div class="construction-inspector-actions"><button type="button" class="construction-clear-button" data-construction-action="clear">Clear workspace</button></div>`;
       return;
     }
     const [kind, id] = selected.split(":");
     if (kind === "node") {
       const node = state.construction.nodes.find((candidate) => candidate.id === id);
       if (!node) return;
-      els["construction-inspector"].innerHTML = `<h3>${constructionNodeTypeLabel(node.type)}</h3><p>${constructionNodeDetails(node)}</p><p>Drag the circle to reposition it.</p><div class="construction-inspector-actions"><button type="button" class="construction-return" data-construction-action="return:node:${node.id}">Return to tray</button><button type="button" class="construction-clear-button" data-construction-action="clear">Clear all</button></div>`;
+      els["construction-inspector"].innerHTML = `<h3>${constructionNodeTypeLabel(node.type)}</h3><p>${constructionNodeDetails(node)}</p><p>Drag the circle to reposition it.</p><div class="construction-inspector-actions"><button type="button" class="construction-return" data-construction-action="return:node:${node.id}">Return to tray</button><button type="button" class="construction-clear-button" data-construction-action="clear">Clear workspace</button></div>`;
       return;
     }
     const line = state.construction.lines.find((candidate) => candidate.id === id);
@@ -2963,19 +2985,31 @@
     const from = state.construction.nodes.find((node) => node.id === line.from);
     const to = state.construction.nodes.find((node) => node.id === line.to);
     const connection = line.placed ? `${from?.name || "Unknown"} -&gt; ${to?.name || "Unknown"}` : "Not connected yet";
-    els["construction-inspector"].innerHTML = `<h3>${constructionLineDisplayName(line)}</h3><p>${connection}</p><p>Preset flow: ${line.flow} MW | Preset limit: ${line.capacity} MW</p><div class="construction-inspector-actions"><button type="button" class="construction-return" data-construction-action="return:line:${line.id}">Return to tray</button><button type="button" class="construction-clear-button" data-construction-action="clear">Clear all</button></div>`;
+    els["construction-inspector"].innerHTML = `<h3>${constructionLineDisplayName(line)}</h3><p>${connection}</p><p>Carries: ${line.flow} MW · Limit: ${line.capacity} MW</p><div class="construction-inspector-actions"><button type="button" class="construction-return" data-construction-action="return:line:${line.id}">Return to tray</button><button type="button" class="construction-clear-button" data-construction-action="clear">Clear workspace</button></div>`;
   }
 
   function renderConstructionTray() {
     const level = getConstructionLevel();
     const placedIds = new Set(state.construction.nodes.map((node) => node.id));
-    els["construction-piece-tray"].innerHTML = constructionTrayPieces(level).map(({ kind, piece }) => {
+    const openGroups = new Set([...els['construction-piece-tray'].querySelectorAll('details[open]')].map(el => el.dataset.group));
+    const initialized = !!els['construction-piece-tray'].querySelector('details');
+    const pieces = constructionTrayPieces(level);
+    const groups = [['resource', 'Generators'], ['bus', 'Grid nodes'], ['load', 'Loads'], ['line', 'Transmission lines']];
+    els["construction-piece-tray"].innerHTML = groups.map(([type, title]) => {
+      const items = pieces.filter(({ kind, piece }) => type === 'line' ? kind === 'line' : kind === 'node' && piece.type === type);
+      const remaining = items.filter(({kind, piece}) => kind === 'node' ? !placedIds.has(piece.id) : !state.construction.lines.find(l => l.id === piece.id)?.inWorkspace).length;
+      return `<details class="tray-group" data-group="${type}" ${initialized ? (openGroups.has(type) ? 'open' : '') : (!matchMedia('(max-width:760px)').matches || type === 'resource' ? 'open' : '')}><summary>${title}<span>${remaining} remaining</span></summary><div class="tray-group-items">${items.map(({ kind, piece }) => {
       if (kind === "node") {
         const detail = piece.type === "resource" ? `${piece.capacity} MW - ${formatMoney(piece.offer)}/MWh` : piece.type === "load" ? `${piece.demand} MW demand` : "Network junction";
         return `<button type="button" class="construction-component construction-node-piece ${piece.type}" draggable="true" data-construction-piece-id="${piece.id}" aria-label="${piece.name}"><strong>${piece.name}</strong><span>${detail}</span></button>`;
       }
-      return `<button type="button" class="construction-component construction-line-piece" draggable="true" data-construction-line-piece="${piece.id}" aria-label="${constructionLineDisplayName(piece)}, ${piece.flow} megawatt flow, ${piece.capacity} megawatt limit"><span class="line-piece-mark"></span><strong>${constructionLineDisplayName(piece)}</strong><span>Flow ${piece.flow} MW | Limit ${piece.capacity} MW</span></button>`;
-    }).join("");
+      return `<button type="button" class="construction-component construction-line-piece" draggable="true" data-construction-line-piece="${piece.id}" aria-label="${constructionLineDisplayName(piece)}, ${piece.flow} megawatt flow, ${piece.capacity} megawatt limit"><strong>${constructionLineDisplayName(piece)}</strong><span class="line-piece-mark"></span><span class="line-piece-values"><span><small>Carries</small><b>${piece.flow} MW</b></span><span><small>Limit</small><b>${piece.capacity} MW</b></span></span></button>`;
+    }).join('')}</div></details>`;
+    }).join('');
+    const remainingCount = level.nodes.length - placedIds.size + state.construction.lines.filter(l => !l.inWorkspace).length;
+    let progress = document.getElementById('construction-placement-progress');
+    if (!progress) { progress = document.createElement('p'); progress.id = 'construction-placement-progress'; progress.className = 'placement-progress'; els['construction-piece-tray'].before(progress); }
+    progress.textContent = remainingCount ? `${remainingCount} pieces remaining` : 'All pieces placed';
     els["construction-piece-tray"].querySelectorAll("[data-construction-piece-id]").forEach((button) => {
       button.disabled = placedIds.has(button.dataset.constructionPieceId);
     });
@@ -2989,8 +3023,30 @@
     renderConstructionMap();
     renderConstructionInspector();
     renderConstructionTray();
+    renderConstructionSelectionTools();
     renderConstructionNavigation();
     saveConstructionDraft();
+  }
+
+  function renderConstructionSelectionTools() {
+    document.querySelector('.construction-selection-tools')?.remove();
+    const selected = state.construction.selected;
+    if (!selected) return;
+    const [kind,id] = selected.split(':');
+    const item = kind === 'node' ? state.construction.nodes.find(n => n.id === id) : state.construction.lines.find(l => l.id === id);
+    if (!item) return;
+    const svg = els['construction-map'], matrix = svg.getScreenCTM();
+    if (!matrix) return;
+    const point = svg.createSVGPoint();
+    const geometry = kind === 'line' ? constructionRenderedLineGeometry(item, constructionPositions()) : null;
+    point.x = geometry ? (geometry.from.x + geometry.to.x)/2 : item.x;
+    point.y = geometry ? (geometry.from.y + geometry.to.y)/2 : item.y;
+    const screen = point.matrixTransform(matrix), bounds = svg.parentElement.getBoundingClientRect();
+    const tools = document.createElement('div'); tools.className = 'construction-selection-tools';
+    tools.style.left = `${Math.max(8, Math.min(bounds.width - 165, screen.x - bounds.left - 75))}px`;
+    tools.style.top = `${Math.max(8, Math.min(svg.getBoundingClientRect().height - 50, screen.y - bounds.top + (kind === 'node' ? 54 * matrix.a + 12 : 20)))}px`;
+    const button = document.createElement('button'); button.type = 'button'; button.textContent = 'Return to tray';
+    button.onclick = () => returnConstructionPiece(kind,id); tools.append(button); svg.parentElement.append(tools);
   }
 
   function saveConstructionDraft() {
@@ -3720,14 +3776,14 @@
     const description = root.querySelector(mode === 'lmp' ? '#level-description' : `#${mode}-level-description`);
     const lmp = mode === 'lmp', construction = mode === 'construction';
     if (lmp) description.textContent = `Find each grid node and load's LMP, then balance the transmission flows to serve ${level.loadDemand} MW. Use the displayed offers and line limits.`;
-    else if (construction) description.textContent = `${level.description} Use all pieces; any network that balances and respects the limits is accepted.`;
+    else if (construction) description.textContent = `${level.description} Any balanced network within the limits is accepted.`;
     else description.textContent = level.controlMode === 'forecastHedge' ? 'Calculate expected wind and demand from the probabilities. Schedule expected demand using expected wind first, then firm generation. Review each possible outcome after checking.' : ['commitment', 'commitmentReserve', 'integrated'].includes(level.controlMode) ? 'Choose which units are ON. Set an energy limit for each unit and hold the required reserve. Minimize the schedule cost across all displayed hours.' : level.controlMode === 'reserve' ? 'Hold the required reserve while leaving enough capacity for energy. Choose the reserve allocation with the lowest combined cost.' : 'Choose resource quantities to match accepted demand at the lowest offered cost. Compare the next increment on each offer curve and respect forecast availability and transmission limits.';
     description.classList.add('learning-objective');
     if ((lmp || construction) && !root.querySelector('.map-legend')) description.insertAdjacentHTML('afterend', '<div class="map-legend"><span><i></i>Generator</span><span><i></i>Grid node</span><span><i></i>Load</span><span>Line: transmission</span></div>');
     let terms = root.querySelector('.level-terms');
     if (!terms) { terms = document.createElement('div'); terms.className = 'level-terms'; description.after(terms); }
-    terms.innerHTML = LearningGuide.list(mode, level).map((term, i) => `<button type="button" data-term-index="${i}">${LearningGuide.isNew(mode, term.key) && level.id > 0 ? 'New: ' : ''}${term.title.split(' · ')[0]}</button>`).join('');
-    terms.onclick = event => { const button = event.target.closest('[data-term-index]'); if (button) LearningGuide.open(mode, level, false, Number(button.dataset.termIndex)); };
+    terms.innerHTML = `<details class="definitions-menu"><summary>Definitions</summary><label>Choose a term<select aria-label="Level definitions"><option value="">Select a definition…</option>${LearningGuide.list(mode, level).map((term, i) => `<option value="${i}">${term.title}</option>`).join('')}</select></label></details>`;
+    terms.onchange = event => { if (event.target.value !== '') { LearningGuide.open(mode, level, false, Number(event.target.value)); event.target.value = ''; } };
     if (mode === 'day-ahead') {
       root.querySelectorAll('[data-day-ahead-kind="dispatch"]').forEach(input => {
         const label = root.querySelector(`label[for="${input.id}"]`); if (label) label.textContent = 'Energy limit · MW';
@@ -4000,6 +4056,16 @@
       els["construction-feedback"].className = `network-feedback construction-result ${result.valid ? "is-correct" : "is-error"}`;
       els["construction-feedback"].innerHTML = result.valid ? "<strong>Success</strong><span>Valid network. Every MW of load is served.</span>" : `<strong>Try again</strong><span>${result.errors.join(" ")}</span>`;
       renderConstructionView();
+      if (!result.valid) {
+        const named = state.construction.nodes.filter(node => result.errors.some(error => error.includes(node.name)));
+        const affected = named.length ? named : state.construction.nodes.filter(node => node.type !== 'resource');
+        affected.forEach(node => {
+          const group = els['construction-map'].querySelector(`[data-construction-node="${node.id}"]`);
+          group?.classList.add('has-issue');
+          group?.setAttribute('aria-label', `${node.name}: ${result.errors.join(' ')}`);
+          if (group) { const label = document.createElementNS('http://www.w3.org/2000/svg','text'); label.setAttribute('class','construction-issue-label'); label.setAttribute('y','76'); label.textContent = 'Check balance'; group.append(label); }
+        });
+      }
     });
     els["construction-reveal-button"].addEventListener("click", revealConstructionSolution);
     els["construction-piece-tray"].addEventListener("pointerdown", (event) => {
@@ -4038,9 +4104,11 @@
       const button = event.target.closest("[data-construction-piece-id], [data-construction-line-piece]");
       if (!button) return;
       const payload = button.dataset.constructionPieceId ? `node:${button.dataset.constructionPieceId}` : `line:${button.dataset.constructionLinePiece}`;
+      state.construction.previewKind = payload.startsWith('line:') ? 'line' : 'node';
       event.dataTransfer.setData("text/plain", payload);
     });
-    els["construction-map"].addEventListener("dragover", (event) => event.preventDefault());
+    els["construction-map"].addEventListener("dragover", (event) => { event.preventDefault(); if (state.construction.previewKind === 'line') showConstructionConnectionPreview(constructionMapPoint(event)); });
+    els['construction-piece-tray'].addEventListener('dragend', () => { state.construction.previewKind = null; showConstructionConnectionPreview(); });
     els["construction-map"].addEventListener("drop", (event) => {
       event.preventDefault();
       const payload = event.dataTransfer.getData("text/plain");
@@ -4212,7 +4280,7 @@
     });
     document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeSolvePopover(); });
     window.addEventListener("resize", () => {
-      if (state.screen === "construction-level") renderConstructionMap();
+      if (state.screen === "construction-level") { renderConstructionMap(); renderConstructionSelectionTools(); }
       if (state.screen === "level") renderMap(getLevel(), state.answers);
     });
     els["map-hover-popover"].addEventListener("mouseleave", hideHover);

@@ -4,7 +4,7 @@
   let seen;
   try { seen = new Set(JSON.parse(localStorage.getItem(KEY) || '[]')); } catch { seen = new Set(); }
   let steps = [], index = 0, panel, current, mode;
-  const first = (selector) => [...document.querySelectorAll(selector)].find(el => !el.disabled && el.getBoundingClientRect().width > 0);
+  const first = (selector) => { const candidates = [...document.querySelectorAll(selector)].filter(el => !el.disabled); return candidates.find(el => el.getBoundingClientRect().width > 0) || candidates.find(el => el.closest('details')); };
   const step = (key, title, body, selector) => ({ key, title, body, selector });
   function terms(kind, level) {
     const lmp = kind === 'lmp', network = kind === 'construction';
@@ -66,12 +66,14 @@
     first('.guide-target')?.classList.remove('guide-target');
     const s = steps[index]; current = first(s.selector);
     if (!current) { next(); return; }
+    let disclosure = current.closest('details');
+    while (disclosure) { disclosure.open = true; disclosure = disclosure.parentElement.closest('details'); }
     seen.add(`${mode}:${s.key}`); localStorage.setItem(KEY, JSON.stringify([...seen]));
     current.classList.add('guide-target'); current.scrollIntoView({ block: 'center', behavior: 'instant' });
     if (!panel) { panel = document.createElement('aside'); panel.className = 'term-guide'; panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', 'Term explanation'); document.body.append(panel); }
-    panel.innerHTML = `<div class="term-guide-top"><span>Term ${index + 1} of ${steps.length}</span><button type="button" data-guide="next" aria-label="Close term and move to next">×</button></div><h3>${s.title}</h3><p>${s.body}</p><label>Find a term<select aria-label="Choose a term">${steps.map((t, i) => `<option value="${i}" ${i === index ? 'selected' : ''}>${t.title}</option>`).join('')}</select></label><div class="term-guide-actions"><button type="button" data-guide="back" ${index ? '' : 'disabled'}>Previous</button><button type="button" data-guide="skip">Skip guide</button><button type="button" data-guide="next">${index === steps.length - 1 ? 'Done' : 'Next'}</button></div>`;
+    panel.innerHTML = `<div class="term-guide-top"><span>Term definition</span><button type="button" data-guide="close" aria-label="Close definitions">×</button></div><h3>${s.title}</h3><p>${s.body}</p><label>Find a term<select aria-label="Choose a term">${steps.map((t, i) => `<option value="${i}" ${i === index ? 'selected' : ''}>${t.title}</option>`).join('')}</select></label><div class="term-guide-actions"><button type="button" data-guide="back" ${index ? '' : 'disabled'}>Previous</button><button type="button" data-guide="next">${index === steps.length - 1 ? 'Done' : 'Next'}</button></div>`;
     panel.querySelector('select').onchange = e => { index = Number(e.target.value); show(); };
-    panel.querySelectorAll('[data-guide]').forEach(b => b.onclick = () => { if (b.dataset.guide === 'skip') close(); else if (b.dataset.guide === 'back') { index--; show(); } else next(); });
+    panel.querySelectorAll('[data-guide]').forEach(b => b.onclick = () => { if (b.dataset.guide === 'close') close(); else if (b.dataset.guide === 'back') { index--; show(); } else next(); });
     position(); panel.querySelector('button').focus({ preventScroll: true });
   }
   window.addEventListener('resize', position);
