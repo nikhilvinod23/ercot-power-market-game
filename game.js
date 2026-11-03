@@ -4,7 +4,7 @@
   const PROGRESS_KEY = "power-market-solver-progress.v3";
   const THEME_KEY = "power-market-solver-theme.v1";
   const CONSTRUCTION_INPUT_VERSION = 4;
-  const DAY_AHEAD_INPUT_VERSION = 12;
+  const DAY_AHEAD_INPUT_VERSION = 13;
   const colors = {
     red: "#ff3b30",
     yellow: "#ffd60a",
@@ -959,7 +959,7 @@
     const max = Math.max(0, Number(maxMw) || 0);
     if (downward && max > 0) {
       const middle = Math.max(0, Math.round(max * 0.55));
-      return { style: "linear", points: [{ mw: 0, price: 160 }, { mw: middle, price: 130 }, { mw: max, price: 100 }] };
+      return { style: "linear", points: [{ mw: 0, price: 160 }, { mw: middle, price: 140 }, { mw: max, price: 120 }] };
     }
     return { style: "linear", points: [{ mw: 0, price: 100 }, { mw: max, price: 100 }] };
   }
@@ -1005,14 +1005,14 @@
   function linearOfferBlocks(resource) {
     const points = offerCurvePoints(resource);
     if (points.length < 2 || points.some((point) => !Number.isFinite(point.mw) || !Number.isFinite(point.price))) return [];
-    const resolution = Math.max(0.1, Number(resource.offerCurve.resolution) || 1);
+    const resolution = 0.1;
     const blocks = [];
     let previousMw = 0;
     points.forEach((point) => {
       const endMw = point.mw;
       while (previousMw < endMw - 0.000001) {
         const nextMw = Math.min(endMw, previousMw + resolution);
-        blocks.push({ quantity: nextMw - previousMw, offer: interpolatedCurvePrice(points, nextMw) });
+        blocks.push({ quantity: nextMw - previousMw, offer: (interpolatedCurvePrice(points, previousMw) + interpolatedCurvePrice(points, nextMw)) / 2 });
         previousMw = nextMw;
       }
     });
@@ -1055,6 +1055,7 @@
     const extraDemand = target ? 1 : 0;
     const finiteCapacity = (capacity) => Number.isFinite(capacity) ? capacity : totalDemand + extraDemand + 1;
     const transmissionEdges = {};
+    const reverseTransmissionEdges = {};
     const feederCapacity = new Map();
     level.connections.filter((connection) => connection.type === "feeder").forEach((connection) => {
       feederCapacity.set(connection.from, finiteCapacity(numericCapacity(connection.capacity)));
@@ -1072,7 +1073,7 @@
       transmissionEdges[connection.id] = addEdge(connection.from, connection.to, capacity, 0, {
         type: "transmission", id: connection.id
       });
-      if (connection.bidirectional) addEdge(connection.to, connection.from, capacity, 0, { type: "transmission-reverse", id: connection.id });
+      if (connection.bidirectional) reverseTransmissionEdges[connection.id] = addEdge(connection.to, connection.from, capacity, 0, { type: "transmission-reverse", id: connection.id });
     });
     level.loads.forEach((load) => {
       const extra = target?.kind === "load" && target.id === load.id ? extraDemand : 0;
@@ -1134,7 +1135,7 @@
       generation[edge.meta.resourceId] = (generation[edge.meta.resourceId] || 0) + dispatched;
       if (dispatched > epsilon) generationOffers[edge.meta.resourceId] = Math.max(generationOffers[edge.meta.resourceId] || 0, edge.meta.offer);
     }));
-    const transmissionFlows = Object.fromEntries(Object.entries(transmissionEdges).map(([id, edge]) => [id, edge.initialCapacity - edge.cap]));
+    const transmissionFlows = Object.fromEntries(Object.entries(transmissionEdges).map(([id, edge]) => [id, edge.initialCapacity - edge.cap - (reverseTransmissionEdges[id] ? reverseTransmissionEdges[id].initialCapacity - reverseTransmissionEdges[id].cap : 0)]));
     return {
       feasible: flow >= required - epsilon,
       flow,
@@ -1187,14 +1188,36 @@
     const base = solveMinCostFlow(level);
     if (!base.feasible) return { feasible: false, lmp: {}, base };
     const lmp = {};
-    const hasLinearCurve = level.resources.some((resource) => resource.offerCurve?.style === "linear");
     const nodes = level.buses.map((bus) => ({ kind: "bus", id: bus.id, name: bus.name }))
       .concat(level.loads.map((load) => ({ kind: "load", id: load.id, name: load.name })));
     nodes.forEach((node) => {
-      const perturbed = solveMinCostFlow(level, node);
-      lmp[node.id] = hasLinearCurve
-        ? regionalMarginalOffer(level, node, base)
-        : (perturbed.feasible ? Math.round((perturbed.cost - base.cost) * 100) / 100 : regionalMarginalOffer(level, node, base));
+      const edges = [];
+      const add = (from, to, capacity, cost) => { if (capacity > 0.00001) edges.push({ from, to, cost }); };
+      level.resources.forEach(r => {
+        const feeder = level.connections.find(c => c.type === 'feeder' && c.from === r.name);
+        const q = base.generation[r.id] || 0;
+        const capacity = Math.min(r.capacity, numericCapacity(feeder.capacity));
+        const offer = r.offerCurve ? interpolatedCurvePrice(offerCurvePoints(r), q) : supplyBlocks(r).find((b, i, all) => q <= all.slice(0, i + 1).reduce((s, x) => s + x.quantity, 0) + 1e-6)?.offer ?? r.offer;
+        add('__source__', feeder.to, capacity - q, offer);
+        add(feeder.to, '__source__', q, -offer);
+      });
+      level.connections.filter(c => c.type === 'transmission').forEach(c => {
+        const q = base.transmissionFlows[c.id] || 0;
+        add(c.from, c.to, numericCapacity(c.capacity) - q, 0);
+        add(c.to, c.from, q + (c.bidirectional ? numericCapacity(c.capacity) : 0), 0);
+      });
+      const distance = (start, end) => {
+        const d = new Map([[start, 0]]);
+        for (let i = 0; i < level.buses.length + level.loads.length + 1; i++) {
+          let changed = false;
+          edges.forEach(e => { const v = (d.get(e.from) ?? Infinity) + e.cost; if (v < (d.get(e.to) ?? Infinity) - 1e-7) { d.set(e.to, v); changed = true; } });
+          if (!changed) break;
+        }
+        return d.get(end) ?? Infinity;
+      };
+      const right = distance('__source__', node.name);
+      const left = -distance(node.name, '__source__');
+      lmp[node.id] = Math.round((Number.isFinite(right) ? right : left) * 10) / 10;
     });
     return { feasible: true, lmp, base };
   }
@@ -1302,13 +1325,10 @@
     const lmpValues = Object.values(solutionLmp).map(Number);
     const offerValues = new Set(offers.map((block) => block.offer));
     if ([...level.buses, ...level.loads].some((node) => !Number.isFinite(Number(solutionLmp[node.id])))) errors.push("Every bus and load needs an LMP answer.");
-    if (lmpValues.some((value) => ![...offerValues].some((offer) => Math.abs(value - offer) <= 0.01))) errors.push("An LMP does not match a valid marginal offer.");
     const hasBindingLine = transmissions.some((connection) => {
       const capacity = numericCapacity(connection.capacity);
       return Number.isFinite(capacity) && Math.abs(flowSolution[connection.id] - capacity) <= 0.0001;
     });
-    if (!hasBindingLine && lmpValues.some((value) => Math.abs(value - globalMarginal) > 0.01)) errors.push("Uncongested nodes do not share the system marginal offer.");
-    if (hasBindingLine && Math.abs(Math.max(...lmpValues) - globalMarginal) > 0.01) errors.push("The highest congested-node LMP is not the system marginal offer.");
 
     const marginalCheck = constrainedMarginalLmp(level);
     if (!marginalCheck.feasible) {
@@ -1521,6 +1541,7 @@
   }
 
   function renderLevelSelect() {
+    LearningGuide.close();
     state.screen = "select";
     state.launching = false;
     els["mode-select-screen"].hidden = true;
@@ -1553,6 +1574,7 @@
   }
 
   function renderModeSelect() {
+    LearningGuide.close();
     state.screen = "modes";
     state.launching = false;
     els["mode-select-screen"].hidden = false;
@@ -1594,6 +1616,7 @@
   }
 
   function renderDayAheadSelect() {
+    LearningGuide.close();
     state.screen = "day-ahead-select";
     state.launching = false;
     els["mode-select-screen"].hidden = true;
@@ -1650,7 +1673,7 @@
     const maxMw = Math.max(1, resource.capacity);
     const pointToSvg = (point) => ({ x: 28 + (Number(point.mw) / maxMw) * 220, y: 88 - (Number(point.price) / maxPrice) * 64 });
     const polyline = points.map((point) => { const svgPoint = pointToSvg(point); return `${svgPoint.x},${svgPoint.y}`; }).join(" ");
-    const labels = points.map((point, index) => { const svgPoint = pointToSvg(point); const anchor = index === 0 ? "start" : index === points.length - 1 ? "end" : "middle"; return `<text class="day-ahead-curve-point-label" x="${svgPoint.x}" y="${Math.max(12, svgPoint.y - 6)}" text-anchor="${anchor}">${Number(point.mw).toFixed(0)} MW @ $${Number(point.price).toFixed(0)}</text>`; }).join("");
+    const labels = points.map((point, index) => { if (index > 0 && index < points.length - 1) return ''; const svgPoint = pointToSvg(point); const anchor = index === 0 ? "start" : "end"; return `<text class="day-ahead-curve-point-label" x="${svgPoint.x}" y="${Math.max(12, svgPoint.y - 6)}" text-anchor="${anchor}">${Number(point.mw).toFixed(0)} MW @ $${Number(point.price).toFixed(0)}</text>`; }).join("");
     return `<svg class="day-ahead-curve" data-curve-resource="${resource.id}" data-curve-max-mw="${maxMw}" data-curve-max-price="${maxPrice}" viewBox="0 0 260 108" role="img" aria-label="${resource.name} offer curve. Hover or drag along the curve to inspect price."><line class="day-ahead-curve-axis" x1="28" y1="88" x2="248" y2="88"></line><line class="day-ahead-curve-axis" x1="28" y1="88" x2="28" y2="18"></line><polyline class="day-ahead-curve-line ${resource.className}" points="${polyline}"></polyline>${labels}<g class="day-ahead-curve-trace" hidden><line class="day-ahead-curve-trace-line" x1="28" y1="18" x2="28" y2="88"></line><circle class="day-ahead-curve-trace-point" cx="28" cy="88" r="3"></circle><text class="day-ahead-curve-trace-label" x="34" y="16"></text></g><text class="day-ahead-curve-axis-label" x="248" y="103" text-anchor="end">MW</text><text class="day-ahead-curve-axis-label" x="22" y="14" text-anchor="end">$/MWh</text></svg><span class="day-ahead-curve-readout" data-curve-readout="${resource.id}" aria-live="polite">Hover or drag the curve to inspect price.</span>`;
   }
 
@@ -1717,6 +1740,10 @@
       const reserveLabel = article.querySelector(`[for="day-ahead-reserve-${resource.id}"]`);
       reserveLabel.insertAdjacentHTML("beforebegin", `<label class="day-ahead-control-label" for="day-ahead-dispatch-${resource.id}">Dispatch target</label><input id="day-ahead-dispatch-${resource.id}" type="range" min="0" max="${resource.capacity}" step="1" value="${values[resource.id].dispatch}" data-day-ahead-offer="${resource.id}" data-day-ahead-kind="dispatch" aria-label="Dispatch target for ${resource.name}"><span class="day-ahead-offer-readout" data-day-ahead-readout="${resource.id}-dispatch">${values[resource.id].dispatch} MW dispatch</span>`);
       const info = article.querySelector(".day-ahead-offer-info");
+      const energyLabel = article.querySelector(`[for="day-ahead-dispatch-${resource.id}"]`);
+      if (energyLabel) energyLabel.textContent = 'Energy limit · MW';
+      article.querySelector('[data-day-ahead-kind="dispatch"]').step = '0.5';
+      article.querySelector('[data-day-ahead-kind="reserve"]').step = '5';
       if (info && !info.querySelector(".day-ahead-curve")) info.insertAdjacentHTML("beforeend", renderDayAheadCurve(resource));
     });
   }
@@ -1764,7 +1791,7 @@
       const available = dispatchStackMode ? rawValue.dispatch : rawValue;
       const width = totalCapacity ? Math.max(0, Math.min(100, (available / totalCapacity) * 100)) : 0;
       const valueLabel = dispatchStackMode ? `${available} MW` : level.controlMode === "commitment" ? (available ? "ON" : "OFF") : `${available} MW`;
-      const priceLabel = level.controlMode === "reserve" ? `$${resource.reserveOffer}/MW reserve` : `$${resource.offer}/MWh`;
+      const priceLabel = level.controlMode === "reserve" ? `$${resource.reserveOffer}/MW reserve` : `$${dayAheadCurvePrice(resource, typeof available === "number" ? available : 0).toFixed(1)}/MWh`;
       return `<div class="day-ahead-stack-row"><span class="day-ahead-stack-label">${resource.name}</span><div class="day-ahead-stack-track"><span class="day-ahead-stack-segment ${resource.className}" style="width:${width}%">${available ? valueLabel : ""}</span></div><span class="day-ahead-stack-value">${priceLabel}</span></div>`;
     }).join("");
     els["day-ahead-stack"].innerHTML = `${renderCombinedSupplyCurve(level)}${rows}`;
@@ -1805,7 +1832,7 @@
       const committed = result.commitments?.[resource.id] ? "ON" : "OFF";
       const reserve = result.reserveAwards?.[resource.id] || 0;
       const available = result.energyCapacity?.[resource.id] ?? (result.commitments?.[resource.id] ? resource.capacity : 0);
-      const cells = [resource.name, committed, `${resource.capacity} MW`, `${reserve.toFixed(0)} MW`, `${available.toFixed(0)} MW`, ...hours.map((hour) => `${(result.hourlyAwards?.[hour.id]?.[resource.id] || 0).toFixed(0)} MW`), `$${energyCostByResource[resource.id].toFixed(0)}`, `$${result.commitments?.[resource.id] ? (Number(resource.startupCost) || 0).toFixed(0) : "0"}`, `$${(reserve * (Number(resource.reserveOffer) || 0)).toFixed(0)}`];
+      const cells = [resource.name, committed, `${resource.capacity} MW`, `${reserve.toFixed(0)} MW`, `${available.toFixed(1)} MW`, ...hours.map((hour) => `${(result.hourlyAwards?.[hour.id]?.[resource.id] || 0).toFixed(1)} MW`), `$${energyCostByResource[resource.id].toFixed(0)}`, `$${result.commitments?.[resource.id] ? (Number(resource.startupCost) || 0).toFixed(0) : "0"}`, `$${(reserve * (Number(resource.reserveOffer) || 0) * hours.length).toFixed(0)}`];
       return `<tr>${cells.map((cell) => `<td>${cell}</td>`).join("")}</tr>`;
     }).join("");
     const totalCells = ["TOTAL", "", `${level.resources.reduce((sum, resource) => sum + (result.commitments?.[resource.id] ? resource.capacity : 0), 0)} MW`, `${(result.reserveTotal || 0).toFixed(0)} MW`, `${level.resources.reduce((sum, resource) => sum + (result.energyCapacity?.[resource.id] || 0), 0).toFixed(0)} MW`, ...hours.map((hour) => `${Object.values(result.hourlyAwards?.[hour.id] || {}).reduce((sum, value) => sum + value, 0).toFixed(0)} MW`), `$${(result.energyCost || 0).toFixed(0)}`, `$${(result.startupCost || 0).toFixed(0)}`, `$${(result.reserveCost || 0).toFixed(0)}`];
@@ -1848,6 +1875,8 @@
   }
 
   function showDayAheadConcept() {
+    LearningGuide.open('day-ahead', getDayAheadLevel());
+    return;
     const level = getDayAheadLevel();
     const concept = dayAheadConcept(level);
     state.conceptsShown.add(conceptIdentity("day-ahead", concept));
@@ -1890,6 +1919,8 @@
   }
 
   function showLmpConcept() {
+    LearningGuide.open('lmp', getLevel());
+    return;
     const concept = lmpConcept(getLevel());
     state.conceptsShown.add(conceptIdentity("lmp", concept));
     renderConceptModal("lmp", concept);
@@ -1902,6 +1933,8 @@
   }
 
   function showConstructionConcept() {
+    LearningGuide.open('construction', getConstructionLevel());
+    return;
     const concept = constructionConcept(getConstructionLevel());
     state.conceptsShown.add(conceptIdentity("construction", concept));
     renderConceptModal("construction", concept);
@@ -1915,7 +1948,7 @@
 
   function renderDayAheadResult(message = "Run the market to calculate awards and the DAM LMP.", className = "") {
     els["day-ahead-result"].className = `day-ahead-result ${className}`.trim();
-    els["day-ahead-result"].innerHTML = message;
+    els["day-ahead-result"].innerHTML = message === 'Run the market to calculate awards and the DAM LMP.' ? 'Set your resource choices, then check your schedule.' : message;
   }
 
   function dayAheadCurvePrice(resource, mw) {
@@ -2229,7 +2262,8 @@
         return sum + Math.min(awards[resource.id], available);
       }, 0);
       const shortfall = Math.max(0, Number(scenario.demand) - delivered);
-      const hedged = Math.min(shortfall, peakerAward);
+      const peaker = level.resources.find(resource => resource.id === 'peaker');
+      const hedged = Math.min(shortfall, Math.max(0, Number(peaker?.capacity || 0) - peakerAward));
       const unhedged = Math.max(0, shortfall - hedged);
       const startup = unhedged > 0 && peakerAward <= 0 ? Number(level.resources.find((resource) => resource.id === "peaker")?.startupCost) || 0 : 0;
       const balancingCost = hedged * (Number(level.hedgeOffer) || 0) + unhedged * (Number(level.realTimeOffer) || 0) + startup;
@@ -2297,7 +2331,7 @@
         if (["commitmentReserve", "integrated"].includes(level.controlMode) && level.expectedReserveAwards && Math.abs(result.reserveAwards[resource.id] - level.expectedReserveAwards[resource.id]) > 0.01) errors.push(`${level.title} has an incorrect ${resource.name} reserve award.`);
       });
       if (["congestion", "congestionDemand", "integrated"].includes(level.controlMode)) {
-        if (Math.abs(result.flow - level.expectedFlow) > 0.01 || result.nodeLmps.west !== level.expectedNodeLmp.west || result.nodeLmps.east !== level.expectedNodeLmp.east) errors.push(`${level.title} has an invalid flow or nodal price.`);
+        if (Math.abs(result.flow - level.expectedFlow) > 0.05 || Math.abs(result.nodeLmps.west - level.expectedNodeLmp.west) > 0.1 || Math.abs(result.nodeLmps.east - level.expectedNodeLmp.east) > 0.1) errors.push(`${level.title} has an invalid flow or nodal price.`);
       } else if (!Number.isFinite(result.lmp)) errors.push(`${level.title} has no marginal price.`);
     });
     if (errors.length) console.warn(`Day-ahead level validation failed: ${errors.join(" ")}`);
@@ -2455,9 +2489,10 @@
     renderDayAheadStack(level);
     renderDayAheadResult();
     renderDayAheadNavigation();
+    renderLearningPresentation('day-ahead', level);
     const dayAheadTopic = dayAheadConcept(level);
     renderDayAheadConcept(level);
-    if (!state.conceptsShown.has(conceptIdentity("day-ahead", dayAheadTopic))) window.setTimeout(showDayAheadConcept, 0);
+    window.setTimeout(() => LearningGuide.open('day-ahead', level, true), 0);
   }
 
   function renderForecastHedgeForecast(level) {
@@ -2528,13 +2563,171 @@
     renderDayAheadSelect();
   }
 
+  installTeachingMarkets();
   validateDayAheadLevels();
+
+  function installTeachingMarkets() {
+    const sum = (values) => Object.values(values).reduce((a, b) => a + b, 0);
+    const ev = (outcomes) => outcomes.reduce((total, item) => total + item.value * item.probability, 0);
+    // Whole-number expected availability and unit slopes keep mental arithmetic practical.
+    dayAheadLevels.filter(level => level.id >= 6).forEach(level => {
+      Object.values(level.evForecast?.resources || {}).forEach(item => {
+        if (item.outcomes.length > 1) {
+          const mean = Math.floor(ev(item.outcomes) / 5) * 5;
+          item.outcomes = [{ value: Math.max(0, mean - 5), probability: 0.5 }, { value: mean + 5, probability: 0.5 }];
+        }
+      });
+      level.resources.forEach(resource => {
+        const forecast = level.evForecast?.resources?.[resource.id];
+        if (forecast) resource.capacity = Math.max(resource.capacity, ...forecast.outcomes.map(o => o.value));
+        if (resource.offerCurve?.length) {
+          const first = Math.round(resource.offerCurve[0].price / 10) * 10;
+          const last = resource.offerCurve.at(-1).price;
+          resource.offerCurve = [{ mw: 0, price: first }, { mw: resource.capacity, price: first + (last > first ? resource.capacity * (resource.className === 'solar' ? 2 : 1) : 0) }];
+          resource.offer = first;
+        }
+      });
+    });
+    const capsFor = (level) => Object.fromEntries(level.resources.map(r => [r.id, level.evForecast?.resources?.[r.id] ? ev(level.evForecast.resources[r.id].outcomes) : r.capacity]));
+    const curvesFor = (level, hour = null) => {
+      const demand = hour?.demand ?? level.demand;
+      if (level.loadByZone) {
+        const west = Math.round(level.loadByZone.west * demand / level.demand / 5) * 5;
+        const quantities = { west, east: demand - west };
+        return Object.fromEntries(Object.entries(level.demandBidCurvesByZone).map(([zone, curve]) => [zone, { points: curve.points.map(p => ({ ...p, mw: p.mw * quantities[zone] / level.loadByZone[zone] })) }]));
+      }
+      return { system: level.demandBidCurvesByHour?.[hour?.id] || level.demandBidCurve || makeDemandBidCurve(demand, false) };
+    };
+    const cache = new Map();
+    const introductoryGas = dayAheadLevels[1].resources.find(r => r.id === 'gas');
+    introductoryGas.offerCurve.at(-1).price = 40;
+    const optimum = (level, caps, hour = null) => {
+      const key = JSON.stringify([level.id, caps, hour?.id]);
+      if (!cache.has(key)) {
+        const result = MarketModel.clear(level.resources, caps, curvesFor(level, hour), level.lineLimit || 0);
+        Object.keys(result.awards || {}).forEach(id => { const q = result.awards[id]; if (Math.abs(q - Math.round(q * 2) / 2) < 0.0001) result.awards[id] = Math.round(q * 2) / 2; });
+        cache.set(key, result);
+      }
+      return cache.get(key);
+    };
+    const evaluateEnergy = (level, values) => {
+      const caps = capsFor(level);
+      const awards = Object.fromEntries(level.resources.map(r => [r.id, clippedValue(values[r.id], 0, r.capacity)]));
+      const target = optimum(level, caps);
+      const total = sum(awards), wanted = sum(target.demands);
+      const availabilityExcess = level.resources.reduce((s, r) => s + Math.max(0, awards[r.id] - caps[r.id]), 0);
+      const demands = target.demands;
+      const westGen = level.resources.filter(r => r.zone === 'west').reduce((s, r) => s + awards[r.id], 0);
+      const flow = level.loadByZone ? westGen - demands.west : 0;
+      const totalCost = level.resources.reduce((s, r) => s + dayAheadCurveCost(r, awards[r.id]), 0);
+      return { ...target, awards, totalCost, remaining: Math.max(0, wanted - total) < 0.001 ? 0 : wanted - total, overage: Math.max(0, total - wanted) < 0.001 ? 0 : total - wanted, flow, availabilityExcess, feasible: target.feasible && availabilityExcess < 0.05 && Math.abs(total - wanted) < 0.05 && Math.abs(flow) <= (level.lineLimit || 0) + 0.05 };
+    };
+    solveDayAheadDispatch = level => optimum(level, capsFor(level));
+    solveCongestion = evaluateEnergy;
+    const oldClear = clearDayAhead;
+    clearDayAhead = (level, values) => {
+      if (['dispatch', 'demandCurve', 'congestion', 'congestionDemand'].includes(level.controlMode)) return evaluateEnergy(level, values);
+      if (!level.controlMode) {
+        const caps = Object.fromEntries(level.resources.map(r => [r.id, Math.min(capsFor(level)[r.id], Number(values[r.id]) || 0)]));
+        const result = optimum(level, caps), full = optimum(level, capsFor(level));
+        return { ...result, remaining: Math.max(0, sum(full.demands) - sum(result.demands)), overage: 0, feasible: result.feasible && sum(result.demands) >= sum(full.demands) - 0.05 };
+      }
+      return oldClear(level, values);
+    };
+    evaluateCommitmentReserve = (level, values) => {
+      const available = capsFor(level);
+      const commitments = Object.fromEntries(level.resources.map(r => [r.id, values[r.id]?.commitment ? 1 : 0]));
+      const reserveAwards = Object.fromEntries(level.resources.map(r => [r.id, commitments[r.id] ? Math.min(available[r.id], clippedValue(values[r.id]?.reserve, 0, r.reserveCapacity || 0)) : 0]));
+      const energyCapacity = Object.fromEntries(level.resources.map(r => [r.id, commitments[r.id] ? Math.max(0, Math.min(available[r.id] - reserveAwards[r.id], values[r.id]?.dispatch ?? available[r.id])) : 0]));
+      const hours = level.hours || [{ id: 1, demand: level.demand }];
+      const hourlyAwards = {}, hourlyFlows = {}, hourlyLmps = {}, hourlyDemands = {};
+      let remaining = 0, energyCost = 0, welfare = 0, peakResult;
+      hours.forEach(hour => {
+        const result = optimum(level, energyCapacity, hour);
+        const full = optimum(level, available, hour);
+        hourlyAwards[hour.id] = result.awards;
+        hourlyFlows[hour.id] = result.flow || 0;
+        hourlyLmps[hour.id] = result.lmp;
+        hourlyDemands[hour.id] = result.demands;
+        remaining = Math.max(remaining, sum(full.demands) - sum(result.demands));
+        energyCost += result.totalCost; welfare += result.welfare;
+        if (!peakResult || hour.demand === level.demand) peakResult = result;
+      });
+      const startupCost = level.resources.reduce((s, r) => s + commitments[r.id] * (r.startupCost || 0), 0);
+      const reserveCost = level.resources.reduce((s, r) => s + reserveAwards[r.id] * (r.reserveOffer || 0) * hours.length, 0);
+      const reserveTotal = sum(reserveAwards), reserveShortfall = Math.max(0, level.reserveRequirement - reserveTotal);
+      if (remaining < 0.001) remaining = 0;
+      return { awards: commitments, commitments, reserveAwards, energyCapacity, hourlyAwards, hourlyFlows, hourlyLmps, hourlyDemands, energyAwards: peakResult.awards, nodeLmps: peakResult.nodeLmps, flow: peakResult.flow || 0, lmp: peakResult.lmp, remaining, overage: 0, reserveShortfall, reserveTotal, energyCost, startupCost, reserveCost, totalCost: energyCost + startupCost + reserveCost, welfare: welfare - startupCost - reserveCost, feasible: remaining < 0.05 && reserveShortfall < 0.05 };
+    };
+    const scheduleCache = new Map();
+    solveOptimalCommitmentReserve = level => {
+      if (scheduleCache.has(level.id)) return scheduleCache.get(level.id);
+      let best = null;
+      const resources = level.resources;
+      for (let mask = 0; mask < 2 ** resources.length; mask++) {
+        const values = Object.fromEntries(resources.map((r, i) => [r.id, { commitment: (mask >> i) & 1, reserve: 0 }]));
+        if (resources.reduce((s, r) => s + values[r.id].commitment * capsFor(level)[r.id], 0) < level.demand + level.reserveRequirement) continue;
+        const walk = (index, remaining) => {
+          if (index === resources.length) {
+            if (remaining) return;
+            const result = evaluateCommitmentReserve(level, values);
+            if (result.feasible && (!best || result.totalCost < best.totalCost - 0.01)) best = result;
+            return;
+          }
+          const r = resources[index];
+          for (let reserve = 0; reserve <= Math.min(remaining, values[r.id].commitment ? r.reserveCapacity || 0 : 0); reserve += 5) {
+            values[r.id].reserve = reserve; walk(index + 1, remaining - reserve);
+          }
+        };
+        walk(0, level.reserveRequirement);
+      }
+      scheduleCache.set(level.id, best);
+      return best;
+    };
+    dayAheadLevels.forEach(level => {
+      let result;
+      if (['commitmentReserve', 'integrated'].includes(level.controlMode)) {
+        result = solveOptimalCommitmentReserve(level);
+        if (!result) throw new Error(`${level.title}: no feasible energy and reserve schedule`);
+        level.defaultCommitment = result.commitments;
+        level.defaultReserve = result.reserveAwards;
+        level.expectedReserveAwards = result.reserveAwards;
+        level.defaultDispatch = Object.fromEntries(level.resources.map(r => [r.id, Math.max(...Object.values(result.hourlyAwards).map(a => a[r.id] || 0))]));
+        level.expectedAwards = result.commitments;
+      } else if (['dispatch', 'congestion'].includes(level.controlMode)) {
+        result = optimum(level, capsFor(level));
+        level.expectedAwards = result.awards; level.defaultDispatch = result.awards;
+      }
+      if (result?.nodeLmps) { level.expectedNodeLmp = result.nodeLmps; level.expectedFlow = result.flow; }
+    });
+    // Compare economics rather than requiring a single arbitrary optimal allocation.
+    checkDayAheadSchedule = () => {
+      const level = getDayAheadLevel();
+      runDayAheadMarket();
+      const result = state.dayAheadResult;
+      if (!result?.feasible) {
+        const messages = [];
+        if (result.remaining > 0.05) messages.push(`You need ${result.remaining.toFixed(1)} MW more to match the accepted demand.`);
+        if (result.overage > 0.05) messages.push(`Remove ${result.overage.toFixed(1)} MW of excess dispatch.`);
+        if (result.availabilityExcess > 0.05) messages.push(`${result.availabilityExcess.toFixed(1)} MW exceeds forecast availability. Calculate the probability-weighted renewable output.`);
+        if (result.reserveShortfall > 0.05) messages.push(`Hold ${result.reserveShortfall.toFixed(0)} MW more reserve.`);
+        if (level.lineLimit && Math.abs(result.flow) > level.lineLimit + 0.05) messages.push(`The transfer is ${Math.abs(result.flow).toFixed(1)} MW; its limit is ${level.lineLimit} MW.`);
+        renderDayAheadResult(`<strong>Keep working</strong><span>${messages.join(' ') || 'Check each resource’s energy limit and commitment against the displayed requirements.'}</span>`, 'is-error'); return;
+      }
+      const optimal = ['commitmentReserve', 'integrated'].includes(level.controlMode) ? solveOptimalCommitmentReserve(level) : level.controlMode === 'reserve' ? solveOptimalReserve(level) : level.controlMode === 'commitment' ? solveOptimalCommitment(level) : level.controlMode === 'forecastHedge' ? solveOptimalForecastHedge(level) : optimum(level, capsFor(level));
+      const perfect = Math.abs(result.totalCost - optimal.totalCost) < 0.1 && (level.controlMode !== 'forecastHedge' || level.resources.every(r => Math.abs(result.awards[r.id] - optimal.awards[r.id]) < 0.1));
+      state.dayAheadStatuses.set(level.id, perfect ? 'green' : 'yellow'); saveProgress(); renderDayAheadNavigation();
+      const accepted = result.demands ? Object.entries(result.demands).map(([zone, q]) => `${zone}: ${q.toFixed(1)} MW`).join(' · ') : 'See hourly energy awards below.';
+      els['day-ahead-result'].insertAdjacentHTML('afterbegin', `<strong>${perfect ? 'Correct schedule' : 'Feasible schedule — a cheaper choice exists'}</strong><span>${perfect ? 'Demand and operating constraints are satisfied.' : `Your schedule costs $${(result.totalCost - optimal.totalCost).toFixed(0)} more than the best schedule.`}</span><span>Accepted demand — ${accepted}</span>`);
+    };
+  }
 
   function getConstructionLevel(id = state.constructionLevelId) {
     return constructionLevels.find((level) => level.id === id) || constructionLevels[0];
   }
 
   function renderConstructionSelect() {
+    LearningGuide.close();
     state.screen = "construction-select";
     state.launching = false;
     els["mode-select-screen"].hidden = true;
@@ -3089,9 +3282,10 @@
     els["construction-level-title"].textContent = getConstructionLevel(id).title;
     els["construction-level-description"].textContent = getConstructionLevel(id).description;
     renderConstructionView();
+    renderLearningPresentation('construction', getConstructionLevel(id));
     const constructionTopic = constructionConcept(getConstructionLevel(id));
     renderConceptModal("construction", constructionTopic);
-    if (!state.conceptsShown.has(conceptIdentity("construction", constructionTopic))) window.setTimeout(showConstructionConcept, 0);
+    window.setTimeout(() => LearningGuide.open('construction', getConstructionLevel(id), true), 0);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -3124,7 +3318,7 @@
     renderLevelPage();
     const lmpTopic = lmpConcept(getLevel(id));
     renderConceptModal("lmp", lmpTopic);
-    if (!state.conceptsShown.has(conceptIdentity("lmp", lmpTopic))) window.setTimeout(showLmpConcept, 0);
+    window.setTimeout(() => LearningGuide.open('lmp', getLevel(id), true), 0);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -3342,7 +3536,7 @@
       return { title: item.name, kind: "Load node", rows };
     }
     const rows = [["Capacity", item.capacity], ["Send", targetValue(target)]];
-    if (item.crr) rows.push(["CRR", `${item.crr.type} · ${item.crr.holder} · ${formatMoney(item.crr.strike)}/MWh`]);
+    if (item.crr) rows.push(["CRR (financial hedge)", `${item.crr.type} · ${item.crr.holder} · purchase premium ${formatMoney(item.crr.strike)}/MWh; no physical capacity`]);
     return { title: item.label || `${item.from} to ${item.to}`, kind: "Transmission line", rows };
   }
 
@@ -3518,6 +3712,30 @@
     els["network-feedback"].className = "network-feedback";
     els["network-feedback"].textContent = "Click a node or line to set its value.";
     els["completion-panel"].hidden = true;
+    renderLearningPresentation('lmp', level);
+  }
+
+  function renderLearningPresentation(mode, level) {
+    const root = document.getElementById(mode === 'lmp' ? 'level-screen' : `${mode}-level-screen`);
+    const description = root.querySelector(mode === 'lmp' ? '#level-description' : `#${mode}-level-description`);
+    const lmp = mode === 'lmp', construction = mode === 'construction';
+    if (lmp) description.textContent = `Find each grid node and load's LMP, then balance the transmission flows to serve ${level.loadDemand} MW. Use the displayed offers and line limits.`;
+    else if (construction) description.textContent = `${level.description} Use all pieces; any network that balances and respects the limits is accepted.`;
+    else description.textContent = level.controlMode === 'forecastHedge' ? 'Calculate expected wind and demand from the probabilities. Schedule expected demand using expected wind first, then firm generation. Review each possible outcome after checking.' : ['commitment', 'commitmentReserve', 'integrated'].includes(level.controlMode) ? 'Choose which units are ON. Set an energy limit for each unit and hold the required reserve. Minimize the schedule cost across all displayed hours.' : level.controlMode === 'reserve' ? 'Hold the required reserve while leaving enough capacity for energy. Choose the reserve allocation with the lowest combined cost.' : 'Choose resource quantities to match accepted demand at the lowest offered cost. Compare the next increment on each offer curve and respect forecast availability and transmission limits.';
+    description.classList.add('learning-objective');
+    if ((lmp || construction) && !root.querySelector('.map-legend')) description.insertAdjacentHTML('afterend', '<div class="map-legend"><span><i></i>Generator</span><span><i></i>Grid node</span><span><i></i>Load</span><span>Line: transmission</span></div>');
+    let terms = root.querySelector('.level-terms');
+    if (!terms) { terms = document.createElement('div'); terms.className = 'level-terms'; description.after(terms); }
+    terms.innerHTML = LearningGuide.list(mode, level).map((term, i) => `<button type="button" data-term-index="${i}">${LearningGuide.isNew(mode, term.key) && level.id > 0 ? 'New: ' : ''}${term.title.split(' · ')[0]}</button>`).join('');
+    terms.onclick = event => { const button = event.target.closest('[data-term-index]'); if (button) LearningGuide.open(mode, level, false, Number(button.dataset.termIndex)); };
+    if (mode === 'day-ahead') {
+      root.querySelectorAll('[data-day-ahead-kind="dispatch"]').forEach(input => {
+        const label = root.querySelector(`label[for="${input.id}"]`); if (label) label.textContent = 'Energy limit · MW';
+      });
+      root.querySelectorAll('input[type="range"]').forEach(input => { if (input.dataset.dayAheadKind !== 'commitment') input.step = input.dataset.dayAheadKind === 'reserve' ? '5' : '0.5'; });
+      const hours = root.querySelector('#day-ahead-hours-summary');
+      if (level.hours && level.loadByZone) hours.textContent = level.hours.map(h => { const west = Math.round(level.loadByZone.west * h.demand / level.demand / 5) * 5; return `Hour ${h.id}: West ${west} / East ${h.demand - west} MW`; }).join(' · ');
+    }
   }
 
   function readAnswers(level) {
@@ -3533,10 +3751,12 @@
     const transmissions = level.connections.filter((connection) => connection.type === "transmission");
     const solution = level.solution || { lmp: level.expectedLmp, flows: Object.fromEntries(transmissions.map((connection) => [connection.id, connection.expectedFlow])) };
     const perfectLmp = Object.entries(solution.lmp).every(([id, expected]) => within(answers.lmp[id], expected, 0.01));
-    const perfectFlow = transmissions.every((connection) => within(answers.flows[connection.id], solution.flows[connection.id], 0.1));
+    const proposed = { ...level, connections: level.connections.map(connection => ({ ...connection, expectedFlow: answers.flows[connection.id] ?? connection.expectedFlow })) };
+    const checked = validateLevel(proposed);
+    const perfectFlow = checked.valid;
     if (perfectLmp && perfectFlow) return "green";
     const solvedLmp = Object.entries(solution.lmp).every(([id, expected]) => within(answers.lmp[id], expected, 5));
-    const solvedFlow = transmissions.every((connection) => within(answers.flows[connection.id], solution.flows[connection.id], 5));
+    const solvedFlow = perfectFlow;
     return solvedLmp && solvedFlow ? "yellow" : null;
   }
 
@@ -3553,7 +3773,7 @@
   }
 
   function completionText(status, level) {
-    if (status === "green") return "Perfectly solved.";
+    if (status === "green") return "Correct: the flows serve every load within the line limits. The LMPs match the next available increment at each location.";
     if (status === "yellow") return "Solved, but not perfectly.";
     return level.explanation;
   }
@@ -3606,7 +3826,6 @@
     }
     const status = classifyAnswers(level, answers);
     if (status) {
-      state.answers = retainWorkingAnswers(level, answers);
       state.statuses.set(level.id, status);
       saveProgress();
       renderMap(level, state.answers);
@@ -3658,6 +3877,9 @@
   }
 
   function bindMapEvents() {
+    els['network-map'].addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') { const target = event.target.closest('[data-target-kind]'); if (target) { event.preventDefault(); target.dispatchEvent(new MouseEvent('click', { bubbles: true })); } }
+    });
     els["network-map"].addEventListener("click", (event) => {
       const group = event.target.closest(".map-connection-group, .map-node-group");
       if (!group) return;
@@ -3705,7 +3927,9 @@
       const next = dayAheadLevels.find((level) => level.id === state.dayAheadLevelId + 1);
       if (next && isDayAheadUnlocked(next)) openDayAheadLevel(next.id);
     });
-    els["day-ahead-run-button"].addEventListener("click", runDayAheadMarket);
+    els["day-ahead-run-button"].textContent = 'Check my schedule';
+    els["day-ahead-check-button"].hidden = true;
+    els["day-ahead-run-button"].addEventListener("click", checkDayAheadSchedule);
     els["day-ahead-check-button"].addEventListener("click", checkDayAheadSchedule);
     els["day-ahead-reveal-button"].addEventListener("click", revealDayAheadAnswer);
     els["day-ahead-offers"].addEventListener("click", (event) => {

@@ -6,6 +6,8 @@
     <meta name="description" content="Power Market Solver." />
     <title>Power Market Solver</title>
     <link rel="stylesheet" href="game.css" />
+    <script src="market-model.js" defer></script>
+    <script src="learning-guide.js" defer></script>
     <script src="game.js" defer></script>
   </head>
   <body>
@@ -14,9 +16,9 @@
       <section id="mode-select-screen" class="mode-screen" aria-labelledby="mode-title">
         <h1 id="mode-title">Power Market Solver</h1>
         <div class="mode-circles" aria-label="Game modes">
-          <button type="button" class="mode-circle mode-lmp" id="lmp-mode-button">LMP Solver</button>
-          <button type="button" class="mode-circle mode-congestion" id="network-mode-button">Network Construction</button>
-          <button type="button" class="mode-circle mode-day-ahead" id="day-ahead-mode-button">Day-Ahead Market</button>
+          <button type="button" class="mode-circle mode-lmp" id="lmp-mode-button" aria-label="LMP Solver">LMP Solver<small>Find prices and flows</small></button>
+          <button type="button" class="mode-circle mode-congestion" id="network-mode-button" aria-label="Network Construction">Network Construction<small>Build a balanced network</small></button>
+          <button type="button" class="mode-circle mode-day-ahead" id="day-ahead-mode-button" aria-label="Day-Ahead Market">Day-Ahead Market<small>Choose a supply schedule</small></button>
         </div>
       </section>
 
@@ -53,7 +55,7 @@
             <div id="day-ahead-offers" class="day-ahead-offers"></div>
           </section>
           <section class="day-ahead-panel" aria-labelledby="day-ahead-stack-title">
-            <h3 id="day-ahead-stack-title">Market clearing stack</h3>
+            <h3 id="day-ahead-stack-title">Your resource choices</h3>
             <div id="day-ahead-demand-curve" class="day-ahead-demand-curve" aria-label="Demand bid curve"></div>
             <div id="day-ahead-stack" class="day-ahead-stack"></div>
             <div class="day-ahead-stack-axis"><span>0 MW</span><span id="day-ahead-stack-max">80 MW offered</span></div>
@@ -152,7 +154,7 @@
           </div>
         </header>
 
-        <p class="level-instruction">Hover each for more details. Click the highlighted to solve!</p>
+        <p class="level-instruction">Select a node for its price or a line for its flow. Use ? to look up any term.</p>
         <p id="level-description" class="level-description"></p>
 
         <section class="network-section" aria-labelledby="network-title">
