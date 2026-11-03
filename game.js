@@ -2550,7 +2550,7 @@
     state.dayAheadResult = null;
     renderDayAheadOffers(level);
     renderDayAheadStack(level);
-    runDayAheadMarket();
+    checkDayAheadSchedule();
     saveProgress();
   }
 
@@ -3320,9 +3320,8 @@
     state.construction.selected = null;
     state.construction.checked = true;
     state.construction.revealed = true;
-    els["construction-feedback"].className = "network-feedback construction-result is-close";
-    els["construction-feedback"].innerHTML = "<strong>Solution shown</strong><span>Reset the level to try it yourself.</span>";
     renderConstructionView();
+    els['construction-check-button'].click();
   }
 
   function openConstructionLevel(id) {
@@ -3860,9 +3859,7 @@
     state.revealed = true;
     renderMap(level, state.answers);
     closeSolvePopover();
-    els["network-feedback"].className = "network-feedback is-close";
-    els["network-feedback"].textContent = "Correct values revealed. Change a value to solve the level yourself.";
-    els["completion-panel"].hidden = true;
+    checkNetwork();
   }
 
   function checkNetwork() {
@@ -3949,6 +3946,21 @@
   function bindEvents() {
     let constructionTrayPointerDrag = null;
     let constructionTraySelection = null;
+    let trayGhost = null;
+    let dragScrollFrame = null;
+    const scrollTrayDrag = () => {
+      const drag = constructionTrayPointerDrag;
+      if (!drag) { dragScrollFrame = null; return; }
+      if (drag.moved) { if (drag.lastY > innerHeight-60) window.scrollBy(0,12); else if (drag.lastY < 60) window.scrollBy(0,-12); }
+      dragScrollFrame = requestAnimationFrame(scrollTrayDrag);
+    };
+    const clearTrayGhost = () => { if (dragScrollFrame !== null) cancelAnimationFrame(dragScrollFrame); dragScrollFrame = null; trayGhost?.remove(); trayGhost = null; els['construction-piece-tray'].querySelectorAll('.is-tray-dragging').forEach(b => b.classList.remove('is-tray-dragging')); };
+    const placeTrayPiece = (payload, point = null) => {
+      if (!point) { const index = state.construction.nodes.length + state.construction.lines.filter(l => l.inWorkspace).length; point = {x:150 + (index % 3)*300,y:Math.min(constructionMapHeight()-80,150 + Math.floor(index/3)*150)}; }
+      if (payload.startsWith('node:')) addConstructionComponent(payload.slice(5), point);
+      else placeConstructionLine(payload.slice(5), point);
+      constructionTraySelection = null;
+    };
     els["lmp-mode-button"].addEventListener("click", renderLevelSelect);
     els["network-mode-button"].addEventListener("click", renderConstructionSelect);
     els["day-ahead-mode-button"].addEventListener("click", renderDayAheadSelect);
@@ -4072,13 +4084,21 @@
       const button = event.target.closest("[data-construction-piece-id], [data-construction-line-piece]");
       if (!button || button.disabled) return;
       const payload = button.dataset.constructionPieceId ? `node:${button.dataset.constructionPieceId}` : `line:${button.dataset.constructionLinePiece}`;
-      constructionTrayPointerDrag = { payload, pointerId: event.pointerId, moved: false };
+      if (event.button !== 0) return;
+      constructionTrayPointerDrag = { payload, pointerId: event.pointerId, moved: false, x:event.clientX, y:event.clientY };
+      clearTrayGhost();
+      dragScrollFrame = requestAnimationFrame(scrollTrayDrag);
+      button.classList.add('is-tray-dragging');
+      trayGhost = button.cloneNode(true); trayGhost.removeAttribute('id'); trayGhost.removeAttribute('draggable'); trayGhost.classList.add('tray-drag-ghost'); trayGhost.setAttribute('aria-hidden','true');
+      const bounds = button.getBoundingClientRect(); trayGhost.style.width = `${bounds.width}px`; trayGhost.style.height = `${bounds.height}px`; trayGhost.style.left = `${event.clientX}px`; trayGhost.style.top = `${event.clientY}px`; document.body.append(trayGhost);
       if (button.setPointerCapture) button.setPointerCapture(event.pointerId);
       event.preventDefault();
     });
     els["construction-piece-tray"].addEventListener("pointermove", (event) => {
       if (!constructionTrayPointerDrag || constructionTrayPointerDrag.pointerId !== event.pointerId) return;
-      constructionTrayPointerDrag.moved = true;
+      if (Math.hypot(event.clientX-constructionTrayPointerDrag.x,event.clientY-constructionTrayPointerDrag.y)>5) constructionTrayPointerDrag.moved = true;
+      constructionTrayPointerDrag.lastY = event.clientY;
+      if (trayGhost) { trayGhost.style.left = `${event.clientX}px`; trayGhost.style.top = `${event.clientY}px`; }
       event.preventDefault();
     });
     els["construction-piece-tray"].addEventListener("pointerup", (event) => {
@@ -4091,15 +4111,15 @@
         if (drag.payload.startsWith("node:")) addConstructionComponent(drag.payload.slice(5), point);
         if (drag.payload.startsWith("line:")) placeConstructionLine(drag.payload.slice(5), point);
       } else if (!drag.moved) {
-        constructionTraySelection = drag.payload;
-        els["construction-feedback"].className = "network-feedback";
-        els["construction-feedback"].textContent = "Piece selected. Tap the workspace to place it.";
+        placeTrayPiece(drag.payload);
       }
       try { event.target.releasePointerCapture(event.pointerId); } catch (error) { /* capture may already be released */ }
       constructionTrayPointerDrag = null;
+      clearTrayGhost();
       event.preventDefault();
     });
-    els["construction-piece-tray"].addEventListener("pointercancel", () => { constructionTrayPointerDrag = null; });
+    els["construction-piece-tray"].addEventListener("pointercancel", () => { constructionTrayPointerDrag = null; clearTrayGhost(); });
+    els['construction-piece-tray'].addEventListener('click', event => { const button = event.target.closest('[data-construction-piece-id], [data-construction-line-piece]'); if (button && !button.disabled && event.detail === 0) placeTrayPiece(button.dataset.constructionPieceId ? `node:${button.dataset.constructionPieceId}` : `line:${button.dataset.constructionLinePiece}`); });
     els["construction-piece-tray"].addEventListener("dragstart", (event) => {
       const button = event.target.closest("[data-construction-piece-id], [data-construction-line-piece]");
       if (!button) return;
@@ -4183,6 +4203,12 @@
       const captureGroup = event.target.closest("[data-construction-node], [data-construction-line]");
       if (captureGroup && captureGroup.releasePointerCapture) {
         try { captureGroup.releasePointerCapture(event.pointerId); } catch (error) { /* capture may already be released */ }
+      }
+      const trayBounds = els['construction-piece-tray'].getBoundingClientRect();
+      if (drag.moved && event.clientX >= trayBounds.left && event.clientX <= trayBounds.right && event.clientY >= trayBounds.top && event.clientY <= trayBounds.bottom) {
+        state.construction.dragging = null;
+        returnConstructionPiece(drag.kind, drag.id);
+        return;
       }
       if (drag.kind === "line" && drag.moved) {
         const line = state.construction.lines.find((candidate) => candidate.id === drag.id);

@@ -21,7 +21,7 @@
     ];
     if (network) {
       all.splice(2, 0, step('hub', 'Grid node / hub', 'A green hub is a meeting point, not a generator. It cannot create or consume power: total flow entering must equal total flow leaving.', piece('bus')));
-      all.push(step('placement', 'Build and check', 'Drag every piece into the workspace. Put a line near its two endpoints to connect it. Select an item to return it to the tray; right-click also returns it. Check Network tests balance and capacity, and accepts any arrangement that passes.', '#construction-map'));
+      all.push(step('placement', 'Build and check', 'Click a piece to add it to the workspace, or drag it to choose its position. Move each line near its two endpoints. Drag a placed piece back to the tray or right-click it to return it. Check network tests balance and capacity, and accepts any arrangement that passes.', '#construction-map'));
       if (level.id === 7 || level.id >= 9) all.push(step('parallel', 'Parallel corridors', 'Separate lines may connect the same two hubs. Each retains its own capacity and preset flow. The drawing offsets them so you can select each one.', line));
       if (level.id === 8 || level.id === 10) all.push(step('loop', 'Loop', 'A loop joins hubs along more than one route. In this puzzle you must still balance every hub using the preset flows; a loop alone does not guarantee a valid solution.', '#construction-map'));
       if (level.contingency) all.push(step('outage', 'Specified outage check', `This level also removes ${level.contingency.label}. The remaining line capacities must still allow all loads to be served. The outage check may reroute flows; the ordinary puzzle uses the preset flows.`, '#construction-map'));

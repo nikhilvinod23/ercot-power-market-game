@@ -57,7 +57,6 @@ const assert = require('node:assert/strict');
     await audit.locator('#day-ahead-level-screen').waitFor({ state: 'visible' });
     if (await audit.locator('.term-guide').count()) await audit.getByRole('button', { name: 'Close definitions' }).click();
     await audit.locator('#day-ahead-reveal-button').click();
-    await audit.locator('#day-ahead-run-button').click();
     assert.match(await audit.locator('#day-ahead-result').innerText(), /Correct schedule/, `Day ahead ${id}`);
     await audit.locator('#day-ahead-back-button').click();
   }
@@ -67,8 +66,21 @@ const assert = require('node:assert/strict');
     await audit.locator(`[data-level="${id}"]`).click();
     await audit.locator('#level-screen').waitFor({ state: 'visible' });
     if (await audit.locator('.term-guide').count()) await audit.getByRole('button', { name: 'Close definitions' }).click();
+    for (const viewport of [{width:1280,height:900},{width:390,height:844}]) {
+      await audit.setViewportSize(viewport);
+      await audit.waitForFunction(() => !document.querySelector('#network-map .map-connection-group:not([data-label-layout])'));
+      const collisions = await audit.evaluate(() => {
+        const map = document.getElementById('network-map');
+        const texts = [...map.querySelectorAll('.map-connection-label,.map-connection-meta')];
+        const circles = [...map.querySelectorAll('.map-node-circle')];
+        const lines = [...map.querySelectorAll('.map-connection')];
+        const crosses = (r,l) => { let lo=0,hi=1; for(const [s,d,min,max] of [[+l.getAttribute('x1'),l.getAttribute('x2')-l.getAttribute('x1'),r.x-2,r.x+r.width+2],[+l.getAttribute('y1'),l.getAttribute('y2')-l.getAttribute('y1'),r.y-2,r.y+r.height+2]]) { if(Math.abs(d)<1e-8){if(s<min||s>max)return false;}else{const a=(min-s)/d,b=(max-s)/d;lo=Math.max(lo,Math.min(a,b));hi=Math.min(hi,Math.max(a,b));if(lo>hi)return false;}}return true; };
+        return texts.filter(t => { const r=t.getBBox(); return circles.some(c=>Math.hypot(+c.getAttribute('cx')-Math.max(r.x,Math.min(r.x+r.width,+c.getAttribute('cx'))),+c.getAttribute('cy')-Math.max(r.y,Math.min(r.y+r.height,+c.getAttribute('cy')))) < +c.getAttribute('r')+2) || lines.some(l=>crosses(r,l)); }).map(t=>t.textContent);
+      });
+      assert.deepEqual(collisions,[],`LMP ${id}, width ${viewport.width}: overlapping labels`);
+    }
+    if(id===10) await audit.screenshot({path:process.env.TEMP+'/power-market-labels-mobile.png'});
     await audit.locator('#reveal-answer-button').click();
-    await audit.locator('#check-network-button').click();
     assert.match(await audit.locator('#completion-title').innerText(), /Perfect/, `LMP ${id}`);
     await audit.locator('#back-button').click();
   }
@@ -91,6 +103,16 @@ const assert = require('node:assert/strict');
     const group = audit.locator(`.tray-group[data-group="${type}"]`);
     if (await group.getAttribute('open') === null) await group.locator('summary').click();
   }
+  const resourcePiece = audit.locator('.tray-group[data-group="resource"] .construction-node-piece');
+  await resourcePiece.scrollIntoViewIfNeeded();
+  const pieceBox = await resourcePiece.boundingBox();
+  await audit.mouse.move(pieceBox.x+pieceBox.width/2,pieceBox.y+pieceBox.height/2);
+  await audit.mouse.down();
+  await audit.mouse.move(pieceBox.x+pieceBox.width/2+12,pieceBox.y+pieceBox.height/2+12,{steps:3});
+  assert.equal(await audit.locator('.tray-drag-ghost').isVisible(),true);
+  await audit.mouse.up();
+  assert.equal(await audit.locator('.tray-drag-ghost').count(),0);
+  assert.equal(await audit.locator('[data-construction-node]').count(),0);
   for (const [type,x] of [['resource',0.14],['bus',0.5],['load',0.86]]) {
     const map = audit.locator('#construction-map');
     const bounds = await map.boundingBox();
@@ -105,6 +127,15 @@ const assert = require('node:assert/strict');
   assert.match(await audit.locator('#construction-placement-progress').innerText(), /All pieces placed/);
   await audit.locator('#construction-check-button').click();
   assert.match(await audit.locator('#construction-feedback').innerText(),/Success/);
+  await audit.locator('[data-construction-node="bus-1"]').click({button:'right'});
+  assert.equal(await audit.locator('[data-construction-node]').count(),2);
+  await audit.locator('[data-construction-piece-id="bus-1"]').click();
+  assert.equal(await audit.locator('[data-construction-node]').count(),3);
+  await audit.locator('[data-construction-node="bus-1"]').dragTo(audit.locator('.tray-group[data-group="bus"] summary'));
+  assert.equal(await audit.locator('[data-construction-node]').count(),2);
+  await audit.locator('#construction-reveal-button').click();
+  assert.match(await audit.locator('#construction-feedback').innerText(),/Success/);
+  assert.equal(await audit.locator('.level-status-badge').count(),0);
   assert.deepEqual(errors, []);
   await browser.close();
   server.close();

@@ -503,6 +503,11 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--blue); outl
 .construction-workspace { position: relative; }
 .construction-selection-tools { position: absolute; z-index: 4; }
 .construction-selection-tools button { border: 0; border-radius: 7px; padding: 9px 12px; background: var(--blue); color: #fff; min-height: 36px; box-shadow: 0 4px 12px var(--shadow); font-size: .76rem; }
+.tray-drag-ghost { position: fixed; z-index: 100; pointer-events: none; transform: translate(-50%,-50%); opacity: .95 !important; box-shadow: 0 8px 24px var(--shadow); filter: drop-shadow(0 0 5px var(--blue)); margin: 0; }
+.is-tray-dragging:not(.tray-drag-ghost) { opacity: .35; }
+.level-circle.status-green.is-latest { animation: none; }
+#construction-next-button, #day-ahead-next-button, #next-level-button { margin-inline-start: auto; }
+@media (max-width:760px) { #construction-next-button, #day-ahead-next-button { flex: 0 1 auto; min-width: 110px; max-width: 48%; } }
 .construction-line-group.is-selected .construction-line { filter: drop-shadow(0 0 7px var(--blue)); }
 @media (max-width: 760px) { .tray-group-items .construction-node-piece { width: 88px; height: 88px; max-width: 100%; justify-self: center; aspect-ratio: 1; } }
 .construction-node.is-connection-candidate .construction-node-circle { filter: drop-shadow(0 0 9px var(--blue)); stroke: var(--blue); stroke-width: 4; }
