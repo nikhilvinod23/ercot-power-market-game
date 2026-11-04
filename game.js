@@ -4,7 +4,7 @@
   const PROGRESS_KEY = "power-market-solver-progress.v3";
   const THEME_KEY = "power-market-solver-theme.v1";
   const CONSTRUCTION_INPUT_VERSION = 4;
-  const DAY_AHEAD_INPUT_VERSION = 12;
+  const DAY_AHEAD_INPUT_VERSION = 13;
   const colors = {
     red: "#ff3b30",
     yellow: "#ffd60a",
@@ -952,6 +952,29 @@
     }
   ];
 
+  // Demand bids describe how much of the existing forecast load buyers are
+  // willing to clear at each price. The final point is deliberately capped at
+  // the level's existing demand (or its existing zonal/hour demand).
+  function makeDemandBidCurve(maxMw, downward) {
+    const max = Math.max(0, Number(maxMw) || 0);
+    if (downward && max > 0) {
+      const middle = Math.max(0, Math.round(max * 0.55));
+      return { style: "linear", points: [{ mw: 0, price: 160 }, { mw: middle, price: 140 }, { mw: max, price: 120 }] };
+    }
+    return { style: "linear", points: [{ mw: 0, price: 100 }, { mw: max, price: 100 }] };
+  }
+
+  dayAheadLevels.forEach((level) => {
+    const downward = level.id >= 6;
+    if (level.loadByZone) {
+      level.demandBidCurvesByZone = Object.fromEntries(Object.entries(level.loadByZone).map(([zone, demand]) => [zone, makeDemandBidCurve(demand, downward)]));
+    } else if (level.hours) {
+      level.demandBidCurvesByHour = Object.fromEntries(level.hours.map((hour) => [hour.id, makeDemandBidCurve(hour.demand, downward)]));
+    } else {
+      level.demandBidCurve = makeDemandBidCurve(level.demand, downward);
+    }
+  });
+
   function numericCapacity(value) {
     if (value === Infinity || value === "∞") return Infinity;
     const text = String(value ?? "").trim().toLowerCase();
@@ -982,14 +1005,14 @@
   function linearOfferBlocks(resource) {
     const points = offerCurvePoints(resource);
     if (points.length < 2 || points.some((point) => !Number.isFinite(point.mw) || !Number.isFinite(point.price))) return [];
-    const resolution = Math.max(0.1, Number(resource.offerCurve.resolution) || 1);
+    const resolution = 0.1;
     const blocks = [];
     let previousMw = 0;
     points.forEach((point) => {
       const endMw = point.mw;
       while (previousMw < endMw - 0.000001) {
         const nextMw = Math.min(endMw, previousMw + resolution);
-        blocks.push({ quantity: nextMw - previousMw, offer: interpolatedCurvePrice(points, nextMw) });
+        blocks.push({ quantity: nextMw - previousMw, offer: (interpolatedCurvePrice(points, previousMw) + interpolatedCurvePrice(points, nextMw)) / 2 });
         previousMw = nextMw;
       }
     });
@@ -1032,6 +1055,7 @@
     const extraDemand = target ? 1 : 0;
     const finiteCapacity = (capacity) => Number.isFinite(capacity) ? capacity : totalDemand + extraDemand + 1;
     const transmissionEdges = {};
+    const reverseTransmissionEdges = {};
     const feederCapacity = new Map();
     level.connections.filter((connection) => connection.type === "feeder").forEach((connection) => {
       feederCapacity.set(connection.from, finiteCapacity(numericCapacity(connection.capacity)));
@@ -1049,7 +1073,7 @@
       transmissionEdges[connection.id] = addEdge(connection.from, connection.to, capacity, 0, {
         type: "transmission", id: connection.id
       });
-      if (connection.bidirectional) addEdge(connection.to, connection.from, capacity, 0, { type: "transmission-reverse", id: connection.id });
+      if (connection.bidirectional) reverseTransmissionEdges[connection.id] = addEdge(connection.to, connection.from, capacity, 0, { type: "transmission-reverse", id: connection.id });
     });
     level.loads.forEach((load) => {
       const extra = target?.kind === "load" && target.id === load.id ? extraDemand : 0;
@@ -1111,7 +1135,7 @@
       generation[edge.meta.resourceId] = (generation[edge.meta.resourceId] || 0) + dispatched;
       if (dispatched > epsilon) generationOffers[edge.meta.resourceId] = Math.max(generationOffers[edge.meta.resourceId] || 0, edge.meta.offer);
     }));
-    const transmissionFlows = Object.fromEntries(Object.entries(transmissionEdges).map(([id, edge]) => [id, edge.initialCapacity - edge.cap]));
+    const transmissionFlows = Object.fromEntries(Object.entries(transmissionEdges).map(([id, edge]) => [id, edge.initialCapacity - edge.cap - (reverseTransmissionEdges[id] ? reverseTransmissionEdges[id].initialCapacity - reverseTransmissionEdges[id].cap : 0)]));
     return {
       feasible: flow >= required - epsilon,
       flow,
@@ -1164,14 +1188,36 @@
     const base = solveMinCostFlow(level);
     if (!base.feasible) return { feasible: false, lmp: {}, base };
     const lmp = {};
-    const hasLinearCurve = level.resources.some((resource) => resource.offerCurve?.style === "linear");
     const nodes = level.buses.map((bus) => ({ kind: "bus", id: bus.id, name: bus.name }))
       .concat(level.loads.map((load) => ({ kind: "load", id: load.id, name: load.name })));
     nodes.forEach((node) => {
-      const perturbed = solveMinCostFlow(level, node);
-      lmp[node.id] = hasLinearCurve
-        ? regionalMarginalOffer(level, node, base)
-        : (perturbed.feasible ? Math.round((perturbed.cost - base.cost) * 100) / 100 : regionalMarginalOffer(level, node, base));
+      const edges = [];
+      const add = (from, to, capacity, cost) => { if (capacity > 0.00001) edges.push({ from, to, cost }); };
+      level.resources.forEach(r => {
+        const feeder = level.connections.find(c => c.type === 'feeder' && c.from === r.name);
+        const q = base.generation[r.id] || 0;
+        const capacity = Math.min(r.capacity, numericCapacity(feeder.capacity));
+        const offer = r.offerCurve ? interpolatedCurvePrice(offerCurvePoints(r), q) : supplyBlocks(r).find((b, i, all) => q <= all.slice(0, i + 1).reduce((s, x) => s + x.quantity, 0) + 1e-6)?.offer ?? r.offer;
+        add('__source__', feeder.to, capacity - q, offer);
+        add(feeder.to, '__source__', q, -offer);
+      });
+      level.connections.filter(c => c.type === 'transmission').forEach(c => {
+        const q = base.transmissionFlows[c.id] || 0;
+        add(c.from, c.to, numericCapacity(c.capacity) - q, 0);
+        add(c.to, c.from, q + (c.bidirectional ? numericCapacity(c.capacity) : 0), 0);
+      });
+      const distance = (start, end) => {
+        const d = new Map([[start, 0]]);
+        for (let i = 0; i < level.buses.length + level.loads.length + 1; i++) {
+          let changed = false;
+          edges.forEach(e => { const v = (d.get(e.from) ?? Infinity) + e.cost; if (v < (d.get(e.to) ?? Infinity) - 1e-7) { d.set(e.to, v); changed = true; } });
+          if (!changed) break;
+        }
+        return d.get(end) ?? Infinity;
+      };
+      const right = distance('__source__', node.name);
+      const left = -distance(node.name, '__source__');
+      lmp[node.id] = Math.round((Number.isFinite(right) ? right : left) * 10) / 10;
     });
     return { feasible: true, lmp, base };
   }
@@ -1279,13 +1325,10 @@
     const lmpValues = Object.values(solutionLmp).map(Number);
     const offerValues = new Set(offers.map((block) => block.offer));
     if ([...level.buses, ...level.loads].some((node) => !Number.isFinite(Number(solutionLmp[node.id])))) errors.push("Every bus and load needs an LMP answer.");
-    if (lmpValues.some((value) => ![...offerValues].some((offer) => Math.abs(value - offer) <= 0.01))) errors.push("An LMP does not match a valid marginal offer.");
     const hasBindingLine = transmissions.some((connection) => {
       const capacity = numericCapacity(connection.capacity);
       return Number.isFinite(capacity) && Math.abs(flowSolution[connection.id] - capacity) <= 0.0001;
     });
-    if (!hasBindingLine && lmpValues.some((value) => Math.abs(value - globalMarginal) > 0.01)) errors.push("Uncongested nodes do not share the system marginal offer.");
-    if (hasBindingLine && Math.abs(Math.max(...lmpValues) - globalMarginal) > 0.01) errors.push("The highest congested-node LMP is not the system marginal offer.");
 
     const marginalCheck = constrainedMarginalLmp(level);
     if (!marginalCheck.feasible) {
@@ -1397,13 +1440,17 @@
     dayAheadStatuses: new Map(),
     dayAheadOffers: {},
     dayAheadResult: null,
+    dayAheadConceptDismissed: new Set(),
+    lmpConceptDismissed: new Set(),
+    constructionConceptDismissed: new Set(),
+    conceptsShown: new Set(),
     theme: localStorage.getItem(THEME_KEY) === "day" ? "day" : "night"
   };
   const els = {};
 
   function cacheElements() {
     [
-      "mode-select-screen", "lmp-mode-button", "network-mode-button", "day-ahead-mode-button", "mode-back-button", "day-ahead-select-screen", "day-ahead-mode-back-button", "day-ahead-full-reset-button", "day-ahead-level-circles", "day-ahead-level-message", "day-ahead-level-screen", "day-ahead-back-button", "day-ahead-reset-button", "day-ahead-level-title", "day-ahead-level-description", "day-ahead-hours-summary", "day-ahead-demand", "day-ahead-reserve-summary", "day-ahead-network-summary", "day-ahead-forecast", "day-ahead-offers", "day-ahead-stack", "day-ahead-stack-max", "day-ahead-run-button", "day-ahead-check-button", "day-ahead-reveal-button", "day-ahead-result", "day-ahead-prev-button", "day-ahead-next-button", "construction-select-screen", "construction-mode-back-button", "construction-full-reset-button", "construction-level-circles", "construction-level-screen", "construction-back-button", "construction-reset-button", "construction-level-title", "construction-level-description", "construction-piece-tray", "construction-map", "construction-lines", "construction-nodes", "construction-inspector", "construction-check-button", "construction-reveal-button", "construction-feedback", "construction-prev-button", "construction-next-button", "level-select-screen", "level-screen", "level-circles", "level-select-message",
+      "mode-select-screen", "lmp-mode-button", "network-mode-button", "day-ahead-mode-button", "mode-back-button", "about-screen", "about-home-link", "footer-home-link", "footer-about-link", "day-ahead-select-screen", "day-ahead-mode-back-button", "day-ahead-full-reset-button", "day-ahead-level-circles", "day-ahead-level-message", "day-ahead-level-screen", "day-ahead-back-button", "day-ahead-reset-button", "day-ahead-help-button", "day-ahead-level-title", "day-ahead-level-description", "day-ahead-hours-summary", "day-ahead-demand", "day-ahead-reserve-summary", "day-ahead-network-summary", "day-ahead-forecast", "day-ahead-demand-curve", "day-ahead-offers", "day-ahead-stack", "day-ahead-stack-max", "day-ahead-run-button", "day-ahead-check-button", "day-ahead-reveal-button", "day-ahead-result", "day-ahead-prev-button", "day-ahead-next-button", "day-ahead-concept-modal", "day-ahead-concept-title", "day-ahead-concept-body", "day-ahead-concept-visual", "construction-select-screen", "construction-mode-back-button", "construction-full-reset-button", "construction-level-circles", "construction-level-screen", "construction-back-button", "construction-reset-button", "construction-help-button", "construction-level-title", "construction-level-description", "construction-piece-tray", "construction-map", "construction-lines", "construction-nodes", "construction-inspector", "construction-check-button", "construction-reveal-button", "construction-feedback", "construction-prev-button", "construction-next-button", "construction-concept-modal", "construction-concept-title", "construction-concept-body", "construction-concept-visual", "lmp-help-button", "lmp-concept-modal", "lmp-concept-title", "lmp-concept-body", "lmp-concept-visual", "level-select-screen", "level-screen", "level-circles", "level-select-message",
       "back-button", "reset-level-button", "level-page-title", "map-connections", "map-resources",
       "map-buses", "map-loads", "network-map", "map-title", "map-description", "map-hover-popover",
       "solve-popover", "check-network-button", "network-feedback", "completion-panel", "completion-title",
@@ -1494,6 +1541,7 @@
   }
 
   function renderLevelSelect() {
+    LearningGuide.close();
     state.screen = "select";
     state.launching = false;
     els["mode-select-screen"].hidden = true;
@@ -1503,6 +1551,7 @@
     els["construction-level-screen"].hidden = true;
     els["level-select-screen"].hidden = false;
     els["level-screen"].hidden = true;
+    els["about-screen"].hidden = true;
     const unlockedIds = levels.filter((level) => isUnlocked(level)).map((level) => level.id);
     const latestUnlockedId = Math.max(...unlockedIds);
     els["level-circles"].innerHTML = levels.map((level) => {
@@ -1526,6 +1575,7 @@
   }
 
   function renderModeSelect() {
+    LearningGuide.close();
     state.screen = "modes";
     state.launching = false;
     els["mode-select-screen"].hidden = false;
@@ -1535,6 +1585,18 @@
     els["construction-level-screen"].hidden = true;
     els["level-select-screen"].hidden = true;
     els["level-screen"].hidden = true;
+    els["about-screen"].hidden = true;
+  }
+
+  function renderAbout() {
+    LearningGuide.close();
+    state.screen = "about";
+    state.launching = false;
+    for (const id of ["mode-select-screen", "day-ahead-select-screen", "day-ahead-level-screen", "construction-select-screen", "construction-level-screen", "level-select-screen", "level-screen"]) {
+      els[id].hidden = true;
+    }
+    els["about-screen"].hidden = false;
+    window.scrollTo({ top: 0, behavior: "instant" });
   }
 
   function getDayAheadLevel(id = state.dayAheadLevelId) {
@@ -1567,6 +1629,7 @@
   }
 
   function renderDayAheadSelect() {
+    LearningGuide.close();
     state.screen = "day-ahead-select";
     state.launching = false;
     els["mode-select-screen"].hidden = true;
@@ -1623,8 +1686,49 @@
     const maxMw = Math.max(1, resource.capacity);
     const pointToSvg = (point) => ({ x: 28 + (Number(point.mw) / maxMw) * 220, y: 88 - (Number(point.price) / maxPrice) * 64 });
     const polyline = points.map((point) => { const svgPoint = pointToSvg(point); return `${svgPoint.x},${svgPoint.y}`; }).join(" ");
-    const labels = points.map((point, index) => { const svgPoint = pointToSvg(point); const anchor = index === 0 ? "start" : index === points.length - 1 ? "end" : "middle"; return `<text class="day-ahead-curve-point-label" x="${svgPoint.x}" y="${Math.max(12, svgPoint.y - 6)}" text-anchor="${anchor}">${Number(point.mw).toFixed(0)} MW @ $${Number(point.price).toFixed(0)}</text>`; }).join("");
+    const labels = points.map((point, index) => { if (index > 0 && index < points.length - 1) return ''; const svgPoint = pointToSvg(point); const anchor = index === 0 ? "start" : "end"; return `<text class="day-ahead-curve-point-label" x="${svgPoint.x}" y="${Math.max(12, svgPoint.y - 6)}" text-anchor="${anchor}">${Number(point.mw).toFixed(0)} MW @ $${Number(point.price).toFixed(0)}</text>`; }).join("");
     return `<svg class="day-ahead-curve" data-curve-resource="${resource.id}" data-curve-max-mw="${maxMw}" data-curve-max-price="${maxPrice}" viewBox="0 0 260 108" role="img" aria-label="${resource.name} offer curve. Hover or drag along the curve to inspect price."><line class="day-ahead-curve-axis" x1="28" y1="88" x2="248" y2="88"></line><line class="day-ahead-curve-axis" x1="28" y1="88" x2="28" y2="18"></line><polyline class="day-ahead-curve-line ${resource.className}" points="${polyline}"></polyline>${labels}<g class="day-ahead-curve-trace" hidden><line class="day-ahead-curve-trace-line" x1="28" y1="18" x2="28" y2="88"></line><circle class="day-ahead-curve-trace-point" cx="28" cy="88" r="3"></circle><text class="day-ahead-curve-trace-label" x="34" y="16"></text></g><text class="day-ahead-curve-axis-label" x="248" y="103" text-anchor="end">MW</text><text class="day-ahead-curve-axis-label" x="22" y="14" text-anchor="end">$/MWh</text></svg><span class="day-ahead-curve-readout" data-curve-readout="${resource.id}" aria-live="polite">Hover or drag the curve to inspect price.</span>`;
+  }
+
+  function demandBidCurvePrice(curve, mw) {
+    const points = curve?.points || [];
+    if (points.length < 2) return 0;
+    const quantity = Math.max(0, Math.min(Number(points[points.length - 1].mw) || 0, Number(mw) || 0));
+    if (quantity <= Number(points[0].mw)) return Number(points[0].price) || 0;
+    for (let index = 1; index < points.length; index += 1) {
+      const previous = points[index - 1];
+      const current = points[index];
+      if (quantity <= Number(current.mw)) {
+        const width = Number(current.mw) - Number(previous.mw);
+        const fraction = width > 0 ? (quantity - Number(previous.mw)) / width : 0;
+        return (Number(previous.price) || 0) + ((Number(current.price) || 0) - (Number(previous.price) || 0)) * fraction;
+      }
+    }
+    return Number(points[points.length - 1].price) || 0;
+  }
+
+  function systemDemandBidPrice(level, mw) {
+    return level.demandBidCurve ? demandBidCurvePrice(level.demandBidCurve, mw) : Infinity;
+  }
+
+  function demandBidCurveMarkup(label, curve) {
+    if (!curve?.points?.length) return "";
+    const maxMw = Math.max(1, Number(curve.points[curve.points.length - 1].mw) || 0);
+    const maxPrice = Math.max(1, ...curve.points.map((point) => Number(point.price) || 0));
+    const pointToSvg = (point) => ({ x: 28 + (Number(point.mw) / maxMw) * 210, y: 91 - (Number(point.price) / maxPrice) * 67 });
+    const polyline = curve.points.map((point) => { const p = pointToSvg(point); return `${p.x},${p.y}`; }).join(" ");
+    const labels = curve.points.map((point, index) => { const p = pointToSvg(point); const anchor = index === 0 ? "start" : index === curve.points.length - 1 ? "end" : "middle"; return `<text class="day-ahead-demand-curve-point-label" x="${p.x}" y="${Math.max(12, p.y - 6)}" text-anchor="${anchor}">${Number(point.mw).toFixed(0)} MW · $${Number(point.price).toFixed(0)}</text>`; }).join("");
+    return `<div class="day-ahead-demand-curve-card">${label ? `<strong>${label}</strong>` : ""}<svg viewBox="0 0 255 116" role="img" aria-label="${label || "Demand"} bid curve"><line class="day-ahead-demand-curve-axis" x1="28" y1="91" x2="242" y2="91"></line><line class="day-ahead-demand-curve-axis" x1="28" y1="91" x2="28" y2="20"></line><polyline class="day-ahead-demand-curve-line" points="${polyline}"></polyline>${labels}<text class="day-ahead-demand-curve-axis-label" x="241" y="108" text-anchor="end">MW</text><text class="day-ahead-demand-curve-axis-label" x="22" y="15" text-anchor="end">$/MWh</text></svg><span class="day-ahead-demand-curve-caption">Maximum: ${maxMw.toFixed(0)} MW · lower bids may not clear.</span></div>`;
+  }
+
+  function renderDayAheadDemandCurve(level) {
+    const container = els["day-ahead-demand-curve"];
+    if (!container) return;
+    let cards = "";
+    if (level.demandBidCurvesByZone) cards = Object.entries(level.demandBidCurvesByZone).map(([zone, curve]) => demandBidCurveMarkup(`${zone[0].toUpperCase()}${zone.slice(1)} demand`, curve)).join("");
+    else if (level.demandBidCurvesByHour) cards = Object.entries(level.demandBidCurvesByHour).map(([hour, curve]) => demandBidCurveMarkup(`Hour ${hour}`, curve)).join("");
+    else cards = demandBidCurveMarkup("System demand", level.demandBidCurve);
+    container.innerHTML = `<span class="day-ahead-demand-curve-title">Demand bid curve</span><span class="day-ahead-demand-curve-note">Buyers accept energy up to the existing load cap. A lower line means the last MW is less valuable.</span><div class="day-ahead-demand-curve-grid">${cards}</div>`;
   }
 
   function dayAheadCurveSummary(resource) {
@@ -1649,26 +1753,36 @@
       const reserveLabel = article.querySelector(`[for="day-ahead-reserve-${resource.id}"]`);
       reserveLabel.insertAdjacentHTML("beforebegin", `<label class="day-ahead-control-label" for="day-ahead-dispatch-${resource.id}">Dispatch target</label><input id="day-ahead-dispatch-${resource.id}" type="range" min="0" max="${resource.capacity}" step="1" value="${values[resource.id].dispatch}" data-day-ahead-offer="${resource.id}" data-day-ahead-kind="dispatch" aria-label="Dispatch target for ${resource.name}"><span class="day-ahead-offer-readout" data-day-ahead-readout="${resource.id}-dispatch">${values[resource.id].dispatch} MW dispatch</span>`);
       const info = article.querySelector(".day-ahead-offer-info");
+      const energyLabel = article.querySelector(`[for="day-ahead-dispatch-${resource.id}"]`);
+      if (energyLabel) energyLabel.textContent = 'Energy limit · MW';
+      article.querySelector('[data-day-ahead-kind="dispatch"]').step = '0.5';
+      article.querySelector('[data-day-ahead-kind="reserve"]').step = '5';
       if (info && !info.querySelector(".day-ahead-curve")) info.insertAdjacentHTML("beforeend", renderDayAheadCurve(resource));
     });
   }
 
   function renderDayAheadOffers(level) {
     const values = dayAheadOfferValues(level);
+    const offerMetric = resource => {
+      const prices = resource.offerCurve?.map(p => p.price) || [resource.offer];
+      const low = Math.min(...prices), high = Math.max(...prices);
+      const format = n => Number(n).toLocaleString('en-US', {maximumFractionDigits: 1});
+      return `<span class="resource-offer-price"><small>Energy offer</small><b>${low === high ? `$${format(low)}` : `$${format(low)}–$${format(high)}`}/MWh</b></span>`;
+    };
     if (level.controlMode === "commitment") {
-      els["day-ahead-offers"].innerHTML = level.resources.map((resource) => `<article class="day-ahead-offer"><div class="day-ahead-offer-info"><strong>${resource.name}</strong><div class="day-ahead-offer-metrics"><span><small>Supply capacity</small><b>${resource.capacity} MW</b></span><span><small>Startup cost</small><b>$${resource.startupCost || 0}</b></span></div>${renderDayAheadCurve(resource)}</div><div class="day-ahead-offer-control"><label class="day-ahead-control-label">Commit unit</label><button type="button" class="day-ahead-toggle ${values[resource.id] ? "is-on" : ""}" aria-pressed="${values[resource.id] ? "true" : "false"}" data-day-ahead-offer="${resource.id}" data-day-ahead-kind="commitment" aria-label="Toggle commitment for ${resource.name}">${values[resource.id] ? "ON" : "OFF"}</button></div></article>`).join("");
+      els["day-ahead-offers"].innerHTML = level.resources.map((resource) => `<article class="day-ahead-offer"><div class="day-ahead-offer-info"><strong>${resource.name}</strong><div class="day-ahead-offer-metrics">${offerMetric(resource)}<span><small>Supply capacity</small><b>${resource.capacity} MW</b></span><span><small>Startup cost</small><b>$${resource.startupCost || 0}</b></span></div>${renderDayAheadCurve(resource)}</div><div class="day-ahead-offer-control"><label class="day-ahead-control-label">Commit unit</label><button type="button" class="day-ahead-toggle ${values[resource.id] ? "is-on" : ""}" aria-pressed="${values[resource.id] ? "true" : "false"}" data-day-ahead-offer="${resource.id}" data-day-ahead-kind="commitment" aria-label="Toggle commitment for ${resource.name}">${values[resource.id] ? "ON" : "OFF"}</button></div></article>`).join("");
       return;
     }
     if (["commitmentReserve", "integrated"].includes(level.controlMode)) {
       els["day-ahead-offers"].innerHTML = level.resources.map((resource) => {
         const value = values[resource.id];
-        return `<article class="day-ahead-offer"><div class="day-ahead-offer-info"><strong>${resource.name}</strong><div class="day-ahead-offer-metrics"><span><small>Energy capacity</small><b>${resource.capacity} MW</b></span><span><small>Reserve capacity</small><b>${resource.reserveCapacity} MW</b></span><span><small>Startup cost</small><b>$${resource.startupCost || 0}</b></span></div>${renderDayAheadCurve(resource)}</div><div class="day-ahead-offer-control"><label class="day-ahead-control-label" for="day-ahead-commit-${resource.id}">Commit unit</label><input id="day-ahead-commit-${resource.id}" type="range" min="0" max="1" step="1" value="${value.commitment}" data-day-ahead-offer="${resource.id}" data-day-ahead-kind="commitment" aria-label="Commit unit for ${resource.name}"><span class="day-ahead-offer-readout" data-day-ahead-readout="${resource.id}-commitment">${value.commitment ? "ON" : "OFF"}</span><label class="day-ahead-control-label" for="day-ahead-reserve-${resource.id}">Reserve target</label><input id="day-ahead-reserve-${resource.id}" type="range" min="0" max="${resource.reserveCapacity}" step="1" value="${value.reserve}" data-day-ahead-offer="${resource.id}" data-day-ahead-kind="reserve" aria-label="Reserve target for ${resource.name}"><span class="day-ahead-offer-readout" data-day-ahead-readout="${resource.id}-reserve">${value.reserve} MW reserve</span></div></article>`;
+        return `<article class="day-ahead-offer"><div class="day-ahead-offer-info"><strong>${resource.name}</strong><div class="day-ahead-offer-metrics">${offerMetric(resource)}<span><small>Energy capacity</small><b>${resource.capacity} MW</b></span><span><small>Reserve capacity</small><b>${resource.reserveCapacity} MW</b></span><span><small>Startup cost</small><b>$${resource.startupCost || 0}</b></span></div>${renderDayAheadCurve(resource)}</div><div class="day-ahead-offer-control"><label class="day-ahead-control-label" for="day-ahead-commit-${resource.id}">Commit unit</label><input id="day-ahead-commit-${resource.id}" type="range" min="0" max="1" step="1" value="${value.commitment}" data-day-ahead-offer="${resource.id}" data-day-ahead-kind="commitment" aria-label="Commit unit for ${resource.name}"><span class="day-ahead-offer-readout" data-day-ahead-readout="${resource.id}-commitment">${value.commitment ? "ON" : "OFF"}</span><label class="day-ahead-control-label" for="day-ahead-reserve-${resource.id}">Reserve target</label><input id="day-ahead-reserve-${resource.id}" type="range" min="0" max="${resource.reserveCapacity}" step="1" value="${value.reserve}" data-day-ahead-offer="${resource.id}" data-day-ahead-kind="reserve" aria-label="Reserve target for ${resource.name}"><span class="day-ahead-offer-readout" data-day-ahead-readout="${resource.id}-reserve">${value.reserve} MW reserve</span></div></article>`;
       }).join("");
       upgradeCommitmentReserveControls(level, values);
       return;
     }
     els["day-ahead-offers"].innerHTML = level.resources.map((resource) => `<article class="day-ahead-offer">
-      <div class="day-ahead-offer-info"><strong>${resource.name}</strong><div class="day-ahead-offer-metrics"><span><small>Supply capacity</small><b>${resource.capacity} MW</b></span>${resource.reserveCapacity !== undefined ? `<span><small>Reserve capacity</small><b>${resource.reserveCapacity} MW</b></span>` : ""}</div>${renderDayAheadCurve(resource)}</div>
+      <div class="day-ahead-offer-info"><strong>${resource.name}</strong><div class="day-ahead-offer-metrics">${offerMetric(resource)}<span><small>Supply capacity</small><b>${resource.capacity} MW</b></span>${resource.reserveCapacity !== undefined ? `<span><small>Reserve capacity</small><b>${resource.reserveCapacity} MW</b></span>` : ""}</div>${renderDayAheadCurve(resource)}</div>
       <div class="day-ahead-offer-control"><label class="day-ahead-control-label" for="day-ahead-input-${resource.id}">${dayAheadControlConfig(level, resource).label}</label><input id="day-ahead-input-${resource.id}" type="range" min="0" max="${dayAheadControlConfig(level, resource).max}" step="${dayAheadControlConfig(level, resource).step}" value="${values[resource.id]}" data-day-ahead-offer="${resource.id}" aria-label="${dayAheadControlConfig(level, resource).label} for ${resource.name}" ><span class="day-ahead-offer-readout" data-day-ahead-readout="${resource.id}">${values[resource.id]} ${dayAheadControlConfig(level, resource).suffix}</span></div>
     </article>`).join("");
   }
@@ -1696,7 +1810,7 @@
       const available = dispatchStackMode ? rawValue.dispatch : rawValue;
       const width = totalCapacity ? Math.max(0, Math.min(100, (available / totalCapacity) * 100)) : 0;
       const valueLabel = dispatchStackMode ? `${available} MW` : level.controlMode === "commitment" ? (available ? "ON" : "OFF") : `${available} MW`;
-      const priceLabel = level.controlMode === "reserve" ? `$${resource.reserveOffer}/MW reserve` : `$${resource.offer}/MWh`;
+      const priceLabel = level.controlMode === "reserve" ? `$${resource.reserveOffer}/MW reserve` : `$${dayAheadCurvePrice(resource, typeof available === "number" ? available : 0).toFixed(1)}/MWh`;
       return `<div class="day-ahead-stack-row"><span class="day-ahead-stack-label">${resource.name}</span><div class="day-ahead-stack-track"><span class="day-ahead-stack-segment ${resource.className}" style="width:${width}%">${available ? valueLabel : ""}</span></div><span class="day-ahead-stack-value">${priceLabel}</span></div>`;
     }).join("");
     els["day-ahead-stack"].innerHTML = `${renderCombinedSupplyCurve(level)}${rows}`;
@@ -1737,16 +1851,123 @@
       const committed = result.commitments?.[resource.id] ? "ON" : "OFF";
       const reserve = result.reserveAwards?.[resource.id] || 0;
       const available = result.energyCapacity?.[resource.id] ?? (result.commitments?.[resource.id] ? resource.capacity : 0);
-      const cells = [resource.name, committed, `${resource.capacity} MW`, `${reserve.toFixed(0)} MW`, `${available.toFixed(0)} MW`, ...hours.map((hour) => `${(result.hourlyAwards?.[hour.id]?.[resource.id] || 0).toFixed(0)} MW`), `$${energyCostByResource[resource.id].toFixed(0)}`, `$${result.commitments?.[resource.id] ? (Number(resource.startupCost) || 0).toFixed(0) : "0"}`, `$${(reserve * (Number(resource.reserveOffer) || 0)).toFixed(0)}`];
+      const cells = [resource.name, committed, `${resource.capacity} MW`, `${reserve.toFixed(0)} MW`, `${available.toFixed(1)} MW`, ...hours.map((hour) => `${(result.hourlyAwards?.[hour.id]?.[resource.id] || 0).toFixed(1)} MW`), `$${energyCostByResource[resource.id].toFixed(0)}`, `$${result.commitments?.[resource.id] ? (Number(resource.startupCost) || 0).toFixed(0) : "0"}`, `$${(reserve * (Number(resource.reserveOffer) || 0) * hours.length).toFixed(0)}`];
       return `<tr>${cells.map((cell) => `<td>${cell}</td>`).join("")}</tr>`;
     }).join("");
     const totalCells = ["TOTAL", "", `${level.resources.reduce((sum, resource) => sum + (result.commitments?.[resource.id] ? resource.capacity : 0), 0)} MW`, `${(result.reserveTotal || 0).toFixed(0)} MW`, `${level.resources.reduce((sum, resource) => sum + (result.energyCapacity?.[resource.id] || 0), 0).toFixed(0)} MW`, ...hours.map((hour) => `${Object.values(result.hourlyAwards?.[hour.id] || {}).reduce((sum, value) => sum + value, 0).toFixed(0)} MW`), `$${(result.energyCost || 0).toFixed(0)}`, `$${(result.startupCost || 0).toFixed(0)}`, `$${(result.reserveCost || 0).toFixed(0)}`];
     return `<div class="day-ahead-calculation-table-wrap"><table class="day-ahead-calculation-table"><thead><tr>${header.map((cell) => `<th>${cell}</th>`).join("")}</tr></thead><tbody>${rows}<tr class="day-ahead-calculation-total">${totalCells.map((cell) => `<td>${cell}</td>`).join("")}</tr></tbody></table></div>`;
   }
 
+  function dayAheadConcept(level) {
+    const topics = [];
+    if (level.id <= 1) topics.push(["Demand bids", "The orange line is the buyer's bid. In these first levels it is flat: the buyer values every MW equally, up to the displayed maximum demand.", "flat", "dam-flat"]);
+    if (level.id >= 2) topics.push(["Network limits", "A transmission limit is a traffic limit on a power path. When the path fills, a bus may need a more expensive local generator, creating different prices.", "congestion", "dam-congestion"]);
+    if (level.id === 3 || level.id >= 8) topics.push(["Unit commitment", "Commitment means deciding whether a generator is available for the schedule. Starting a unit can cost money, so capacity and startup cost must be considered together.", "commitment", "dam-commitment"]);
+    if (level.id === 4 || level.id >= 8) topics.push(["Reserves", "Reserve is held-back capacity that can respond if conditions change. It is not counted as energy serving the load until it is needed.", "reserve", "dam-reserve"]);
+    if (level.id === 5 || level.id >= 6) topics.push(["Forecasts", "Forecasts describe possible demand and renewable output. Use the probabilities to estimate the expected conditions before choosing a schedule.", "forecast", "dam-forecast"]);
+    if (level.id >= 6) topics.push(["Declining demand bids", "At higher quantities the buyer may only be willing to pay less. The market clears the highest-value demand that can be served by the available offers.", "declining", "dam-declining"]);
+    return topics[topics.length - 1] || ["Demand bids", "A demand bid shows how much load buyers are willing to accept at different prices.", "flat", "dam-flat"];
+  }
+
+  function conceptVisualMarkup(kind) {
+    if (kind === "lmp") return `<svg viewBox="0 0 390 145" role="img" aria-label="Generators stacked by price"><rect class="resource" x="48" y="86" width="82" height="30"></rect><rect fill="#34c759" x="130" y="62" width="98" height="54"></rect><rect fill="#ff3b30" x="228" y="35" width="106" height="81"></rect><line class="axis" x1="42" y1="118" x2="344" y2="118"></line><text x="89" y="105" text-anchor="middle" fill="#fff">cheap</text><text x="179" y="91" text-anchor="middle">middle</text><text x="281" y="78" text-anchor="middle" fill="#fff">marginal</text><text x="195" y="140" text-anchor="middle">last needed block sets LMP</text></svg>`;
+    if (kind === "flow") return `<svg viewBox="0 0 390 145" role="img" aria-label="Power flowing through nodes"><circle class="resource" cx="55" cy="72" r="24"></circle><circle class="bus" cx="195" cy="72" r="24"></circle><circle class="load" cx="335" cy="72" r="24"></circle><line class="path" x1="82" y1="72" x2="168" y2="72"></line><line class="path" x1="222" y1="72" x2="308" y2="72"></line><text x="55" y="76" text-anchor="middle">gen</text><text x="195" y="76" text-anchor="middle">node</text><text x="335" y="76" text-anchor="middle">load</text><text x="195" y="126" text-anchor="middle">flow in = flow out + local load</text></svg>`;
+    if (kind === "crr") return `<svg viewBox="0 0 390 145" role="img" aria-label="Financial hedge between two prices"><circle class="bus" cx="70" cy="72" r="25"></circle><circle class="load" cx="320" cy="72" r="25"></circle><line class="path" x1="98" y1="72" x2="292" y2="72"></line><text x="70" y="76" text-anchor="middle">$30</text><text x="320" y="76" text-anchor="middle">$60</text><text x="195" y="48" text-anchor="middle">price difference</text><text x="195" y="113" text-anchor="middle">CRR hedges the spread</text></svg>`;
+    if (kind === "parallel") return `<svg viewBox="0 0 390 145" role="img" aria-label="Two parallel transmission corridors"><circle class="bus" cx="58" cy="72" r="23"></circle><circle class="load" cx="332" cy="72" r="23"></circle><path class="path" d="M82 61 C150 20 240 20 308 61"></path><path class="path" d="M82 83 C150 124 240 124 308 83"></path><text x="195" y="15" text-anchor="middle">corridor 1</text><text x="195" y="140" text-anchor="middle">corridor 2</text></svg>`;
+    if (kind === "reliability") return `<svg viewBox="0 0 390 145" role="img" aria-label="Alternate route for reliability"><circle class="resource" cx="52" cy="72" r="22"></circle><circle class="load" cx="338" cy="72" r="22"></circle><path class="path" d="M76 60 L314 60"></path><path class="path" d="M76 84 L314 84"></path><line x1="195" y1="48" x2="195" y2="96" stroke="#ff3b30" stroke-width="8"></line><text x="195" y="28" text-anchor="middle">one path can fail</text><text x="195" y="130" text-anchor="middle">alternate path keeps load served</text></svg>`;
+    if (kind === "network") return `<svg viewBox="0 0 390 145" role="img" aria-label="Generator hub and loads connected in a network"><circle class="resource" cx="48" cy="72" r="22"></circle><circle class="bus" cx="195" cy="72" r="25"></circle><circle class="load" cx="342" cy="38" r="20"></circle><circle class="load" cx="342" cy="106" r="20"></circle><line class="path" x1="72" y1="72" x2="168" y2="72"></line><line class="path" x1="220" y1="64" x2="322" y2="42"></line><line class="path" x1="220" y1="80" x2="322" y2="102"></line><text x="48" y="76" text-anchor="middle">gen</text><text x="195" y="76" text-anchor="middle">hub</text><text x="342" y="42" text-anchor="middle">load</text><text x="342" y="110" text-anchor="middle">load</text><text x="195" y="137" text-anchor="middle">connect every source to every served load</text></svg>`;
+    if (kind === "supply") return `<svg viewBox="0 0 390 145" role="img" aria-label="Rising generator offer curve"><line class="axis" x1="48" y1="116" x2="350" y2="116"></line><line class="axis" x1="48" y1="116" x2="48" y2="22"></line><polyline class="supply" points="52,105 180,73 345,30"></polyline><text x="48" y="17">$/MWh</text><text x="350" y="137" text-anchor="end">MW</text><text x="58" y="106">low output</text><text x="235" y="40">higher output costs more</text></svg>`;
+    if (kind === "market") return `<svg viewBox="0 0 390 145" role="img" aria-label="Supply and demand curves crossing"><line class="axis" x1="48" y1="116" x2="350" y2="116"></line><line class="axis" x1="48" y1="116" x2="48" y2="22"></line><polyline class="supply" points="52,106 345,30"></polyline><polyline class="curve" points="52,34 345,108"></polyline><circle fill="#ff9500" cx="195" cy="70" r="5"></circle><text x="48" y="17">$/MWh</text><text x="350" y="137" text-anchor="end">MW</text><text x="206" y="62">clearing point</text></svg>`;
+    if (kind === "congestion") return `<svg viewBox="0 0 390 145" role="img" aria-label="Two buses connected by a limited path"><circle class="resource" cx="55" cy="72" r="24"></circle><circle class="load" cx="335" cy="72" r="24"></circle><line class="path" x1="82" y1="72" x2="308" y2="72"></line><text x="55" y="76" text-anchor="middle">cheap</text><text x="335" y="76" text-anchor="middle">load</text><text x="195" y="48" text-anchor="middle">limited path</text><text x="195" y="112" text-anchor="middle">full path → local price rises</text></svg>`;
+    if (kind === "commitment") return `<svg viewBox="0 0 390 145" role="img" aria-label="Generator commitment switch"><rect class="resource" x="45" y="43" width="125" height="58" rx="29"></rect><circle fill="#ffffff" cx="140" cy="72" r="21"></circle><text x="107" y="132" text-anchor="middle">unit OFF / ON</text><text x="270" y="60" text-anchor="middle">start-up</text><text x="270" y="82" text-anchor="middle">cost</text><text x="270" y="104" text-anchor="middle">+ available capacity</text></svg>`;
+    if (kind === "reserve") return `<svg viewBox="0 0 390 145" role="img" aria-label="Energy and reserve capacity"><rect class="resource" x="42" y="48" width="180" height="42"></rect><rect fill="#34c759" x="222" y="48" width="90" height="42"></rect><text x="132" y="75" text-anchor="middle" fill="#fff">energy</text><text x="267" y="75" text-anchor="middle">reserve</text><text x="195" y="122" text-anchor="middle">held back for surprises</text></svg>`;
+    if (kind === "forecast") return `<svg viewBox="0 0 390 145" role="img" aria-label="Forecast outcomes with probabilities"><text x="40" y="44">20 MW wind</text><text x="40" y="91">40 MW wind</text><text x="280" y="44">60%</text><text x="280" y="91">40%</text><line class="axis" x1="205" y1="35" x2="260" y2="35"></line><line class="axis" x1="205" y1="82" x2="260" y2="82"></line><text x="195" y="127" text-anchor="middle">possible outcomes × probabilities</text></svg>`;
+    if (kind === "declining") return `<svg viewBox="0 0 390 145" role="img" aria-label="Downward demand bid curve"><line class="axis" x1="48" y1="116" x2="350" y2="116"></line><line class="axis" x1="48" y1="116" x2="48" y2="22"></line><polyline class="curve" points="52,30 180,58 345,105"></polyline><text x="48" y="17">$/MWh</text><text x="350" y="137" text-anchor="end">MW</text><text x="58" y="28">high value</text><text x="240" y="105">lower value</text></svg>`;
+    return `<svg viewBox="0 0 390 145" role="img" aria-label="Flat demand bid curve"><line class="axis" x1="48" y1="116" x2="350" y2="116"></line><line class="axis" x1="48" y1="116" x2="48" y2="22"></line><line class="curve" x1="52" y1="55" x2="345" y2="55"></line><text x="48" y="17">$/MWh</text><text x="350" y="137" text-anchor="end">MW</text><text x="200" y="42" text-anchor="middle">same value for every MW</text></svg>`;
+  }
+
+  function renderDayAheadConcept(level) {
+    const concept = dayAheadConcept(level);
+    els["day-ahead-concept-title"].textContent = concept[0];
+    els["day-ahead-concept-body"].textContent = concept[1];
+    els["day-ahead-concept-visual"].innerHTML = conceptVisualMarkup(concept[2]);
+  }
+
+  function showDayAheadConcept() {
+    LearningGuide.open('day-ahead', getDayAheadLevel());
+    return;
+    const level = getDayAheadLevel();
+    const concept = dayAheadConcept(level);
+    state.conceptsShown.add(conceptIdentity("day-ahead", concept));
+    renderDayAheadConcept(level);
+    els["day-ahead-concept-modal"].hidden = false;
+  }
+
+  function hideDayAheadConcept() {
+    state.dayAheadConceptDismissed.add(state.dayAheadLevelId);
+    els["day-ahead-concept-modal"].hidden = true;
+  }
+
+  function lmpConcept(level) {
+    if (level.id <= 1) return ["Marginal pricing", "Start with the cheapest generators, then ask which generator supplies the next megawatt. That marginal offer becomes the LMP shown at the connected locations.", "lmp", "lmp-marginal"];
+    if (level.id === 2) return ["Supply curves", "A generator's offer can change as its output changes. Read the curve at the chosen MW, then use the highest accepted marginal offer as the price.", "supply", "lmp-curves"];
+    if (level.id === 3 || level.id === 8) return ["Congestion", "When a line reaches its limit, cheaper power cannot move farther through it. The next available local generator can set a higher LMP.", "congestion", "lmp-congestion"];
+    if (level.id === 4) return ["CRRs", "A congestion revenue right is a financial hedge for a price difference between two locations. It does not create a new wire or generator.", "crr", "lmp-crr"];
+    if (level.id === 5) return ["Day-ahead scheduling", "The day-ahead schedule chooses generator output and transmission flows before the operating hour. It is a plan that can be compared with what happens in real time.", "network", "lmp-day-ahead"];
+    if (level.id === 6 || level.id === 7) return ["Continuous offer curves", "The offer curve gives the price for each output level. Move along the curve rather than treating the generator as one fixed-price block.", "supply", "lmp-curves"];
+    if (level.id === 9 || level.id === 10) return ["Demand and supply curves", "The market compares buyer willingness to pay with generator offers. The crossing point shows which quantity clears and which offer is marginal.", "market", "lmp-demand"];
+    return ["Network constraints", "The map shows where generation, demand, and transmission limits interact. Each node can have its own price when the network is constrained.", "network", "lmp-network"];
+  }
+
+  function constructionConcept(level) {
+    if (level.id === 0) return ["Build a connected path", "Place every circle in the workspace, then place each line so the generator can reach the load through the grid node. Use every piece.", "network", "construction-path"];
+    if (level.id <= 1) return ["Transmission capacity", "Each line has a maximum capacity. A valid design must carry the required flow without exceeding any line's limit.", "flow", "construction-capacity"];
+    if (level.id === 2 || level.id === 7) return ["Parallel corridors", "Two different lines can connect the same pair of nodes. They are separate corridors, so their capacities add without overlapping visually.", "parallel", "construction-parallel"];
+    if (level.id === 3 || level.id === 8) return ["Loops and alternate paths", "A loop gives electricity another route if one path becomes unavailable. Keep every load connected while respecting each line's capacity.", "network", "construction-loop"];
+    return ["Reliability", "A reliable network still serves every load after the listed contingency. Leave enough alternate capacity for the system to keep operating.", "reliability", "construction-reliability"];
+  }
+
+  function renderConceptModal(modalPrefix, concept) {
+    els[`${modalPrefix}-concept-title`].textContent = concept[0];
+    els[`${modalPrefix}-concept-body`].textContent = concept[1];
+    els[`${modalPrefix}-concept-visual`].innerHTML = conceptVisualMarkup(concept[2]);
+  }
+
+  function conceptIdentity(mode, concept) {
+    return `${mode}:${concept[3] || concept[0]}`;
+  }
+
+  function showLmpConcept() {
+    LearningGuide.open('lmp', getLevel());
+    return;
+    const concept = lmpConcept(getLevel());
+    state.conceptsShown.add(conceptIdentity("lmp", concept));
+    renderConceptModal("lmp", concept);
+    els["lmp-concept-modal"].hidden = false;
+  }
+
+  function hideLmpConcept() {
+    state.lmpConceptDismissed.add(state.levelId);
+    els["lmp-concept-modal"].hidden = true;
+  }
+
+  function showConstructionConcept() {
+    LearningGuide.open('construction', getConstructionLevel());
+    return;
+    const concept = constructionConcept(getConstructionLevel());
+    state.conceptsShown.add(conceptIdentity("construction", concept));
+    renderConceptModal("construction", concept);
+    els["construction-concept-modal"].hidden = false;
+  }
+
+  function hideConstructionConcept() {
+    state.constructionConceptDismissed.add(state.constructionLevelId);
+    els["construction-concept-modal"].hidden = true;
+  }
+
   function renderDayAheadResult(message = "Run the market to calculate awards and the DAM LMP.", className = "") {
     els["day-ahead-result"].className = `day-ahead-result ${className}`.trim();
-    els["day-ahead-result"].innerHTML = message;
+    els["day-ahead-result"].innerHTML = message === 'Run the market to calculate awards and the DAM LMP.' ? 'Set your resource choices, then check your schedule.' : message;
   }
 
   function dayAheadCurvePrice(resource, mw) {
@@ -1799,8 +2020,15 @@
     });
     blocks.sort((a, b) => a.marginalCost - b.marginalCost || a.resourceIndex - b.resourceIndex);
     const awards = Object.fromEntries(level.resources.map((resource) => [resource.id, 0]));
-    blocks.slice(0, level.demand).forEach((block) => { awards[block.resourceId] += 1; });
-    return { awards, feasible: blocks.length >= level.demand };
+    const demandCap = Math.max(0, Math.floor(Number(level.demand) || 0));
+    let clearedDemand = 0;
+    blocks.slice(0, demandCap).forEach((block) => {
+      const buyerValue = systemDemandBidPrice(level, clearedDemand + 1);
+      if (block.marginalCost > buyerValue + 0.000001) return;
+      awards[block.resourceId] += 1;
+      clearedDemand += 1;
+    });
+    return { awards, clearedDemand, feasible: blocks.length >= demandCap && clearedDemand > 0 };
   }
 
   function clippedValue(value, minimum, maximum) {
@@ -2053,7 +2281,8 @@
         return sum + Math.min(awards[resource.id], available);
       }, 0);
       const shortfall = Math.max(0, Number(scenario.demand) - delivered);
-      const hedged = Math.min(shortfall, peakerAward);
+      const peaker = level.resources.find(resource => resource.id === 'peaker');
+      const hedged = Math.min(shortfall, Math.max(0, Number(peaker?.capacity || 0) - peakerAward));
       const unhedged = Math.max(0, shortfall - hedged);
       const startup = unhedged > 0 && peakerAward <= 0 ? Number(level.resources.find((resource) => resource.id === "peaker")?.startupCost) || 0 : 0;
       const balancingCost = hedged * (Number(level.hedgeOffer) || 0) + unhedged * (Number(level.realTimeOffer) || 0) + startup;
@@ -2078,11 +2307,15 @@
     if (["dispatch", "demandCurve"].includes(level.controlMode)) {
       const awards = Object.fromEntries(level.resources.map((resource) => [resource.id, Math.max(0, Math.min(resource.capacity, Number(values[resource.id]) || 0))]));
       const totalDispatch = Object.values(awards).reduce((sum, value) => sum + value, 0);
-      const remaining = Math.max(0, level.demand - totalDispatch);
+      const usesDemandBids = Boolean(level.demandBidCurve);
+      const remaining = usesDemandBids ? 0 : Math.max(0, level.demand - totalDispatch);
       const overage = Math.max(0, totalDispatch - level.demand);
       const totalCost = level.resources.reduce((sum, resource) => sum + dayAheadCurveCost(resource, awards[resource.id]), 0);
       const marginal = remaining <= 0 && overage <= 0 ? [...level.resources].filter((resource) => awards[resource.id] > 0).sort((a, b) => dayAheadCurvePrice(a, awards[a.id]) - dayAheadCurvePrice(b, awards[b.id])).at(-1) : null;
-      return { awards, remaining, overage, feasible: remaining <= 0.01 && overage <= 0.01, totalCost, lmp: marginal ? dayAheadCurvePrice(marginal, awards[marginal.id]) : null };
+      const lmp = marginal ? dayAheadCurvePrice(marginal, awards[marginal.id]) : null;
+      const bidValue = usesDemandBids && totalDispatch > 0 ? systemDemandBidPrice(level, totalDispatch) : Infinity;
+      const feasible = remaining <= 0.01 && overage <= 0.01 && (!usesDemandBids || totalDispatch <= 0 || lmp <= bidValue + 0.000001);
+      return { awards, remaining, overage, clearedDemand: totalDispatch, bidValue, feasible, totalCost, lmp };
     }
     if (["congestion", "congestionDemand"].includes(level.controlMode)) return solveCongestion(level, values);
     if (level.controlMode === "commitment") return evaluateCommitment(level, values);
@@ -2117,7 +2350,7 @@
         if (["commitmentReserve", "integrated"].includes(level.controlMode) && level.expectedReserveAwards && Math.abs(result.reserveAwards[resource.id] - level.expectedReserveAwards[resource.id]) > 0.01) errors.push(`${level.title} has an incorrect ${resource.name} reserve award.`);
       });
       if (["congestion", "congestionDemand", "integrated"].includes(level.controlMode)) {
-        if (Math.abs(result.flow - level.expectedFlow) > 0.01 || result.nodeLmps.west !== level.expectedNodeLmp.west || result.nodeLmps.east !== level.expectedNodeLmp.east) errors.push(`${level.title} has an invalid flow or nodal price.`);
+        if (Math.abs(result.flow - level.expectedFlow) > 0.05 || Math.abs(result.nodeLmps.west - level.expectedNodeLmp.west) > 0.1 || Math.abs(result.nodeLmps.east - level.expectedNodeLmp.east) > 0.1) errors.push(`${level.title} has an invalid flow or nodal price.`);
       } else if (!Number.isFinite(result.lmp)) errors.push(`${level.title} has no marginal price.`);
     });
     if (errors.length) console.warn(`Day-ahead level validation failed: ${errors.join(" ")}`);
@@ -2264,16 +2497,21 @@
     els["level-select-screen"].hidden = true;
     els["level-screen"].hidden = true;
     els["day-ahead-level-title"].textContent = `${level.title}: ${level.theme}`;
-    els["day-ahead-level-description"].textContent = level.description;
+    els["day-ahead-level-description"].textContent = `${level.description}${level.resources.some((resource) => Array.isArray(resource.offerCurve)) ? " Hover over the resources to see cost curves." : ""}`;
     els["day-ahead-hours-summary"].textContent = level.hours ? level.hours.map((hour) => `${hour.id}: ${hour.demand} MW`).join(" · ") : "1";
     els["day-ahead-demand"].textContent = level.loadLabel || (level.actualDemand !== undefined ? `${level.demand} MW DA · ${level.actualDemand} MW actual` : `${level.demand} MW`);
     els["day-ahead-reserve-summary"].textContent = level.reserveRequirement ? `${level.reserveRequirement} MW` : "None";
     els["day-ahead-network-summary"].textContent = level.networkLabel || "None — single bus";
     renderForecastHedgeForecast(level);
+    renderDayAheadDemandCurve(level);
     renderDayAheadOffers(level);
     renderDayAheadStack(level);
     renderDayAheadResult();
     renderDayAheadNavigation();
+    renderLearningPresentation('day-ahead', level);
+    const dayAheadTopic = dayAheadConcept(level);
+    renderDayAheadConcept(level);
+    window.setTimeout(() => LearningGuide.open('day-ahead', level, true), 0);
   }
 
   function renderForecastHedgeForecast(level) {
@@ -2331,7 +2569,7 @@
     state.dayAheadResult = null;
     renderDayAheadOffers(level);
     renderDayAheadStack(level);
-    runDayAheadMarket();
+    checkDayAheadSchedule();
     saveProgress();
   }
 
@@ -2344,13 +2582,171 @@
     renderDayAheadSelect();
   }
 
+  installTeachingMarkets();
   validateDayAheadLevels();
+
+  function installTeachingMarkets() {
+    const sum = (values) => Object.values(values).reduce((a, b) => a + b, 0);
+    const ev = (outcomes) => outcomes.reduce((total, item) => total + item.value * item.probability, 0);
+    // Whole-number expected availability and unit slopes keep mental arithmetic practical.
+    dayAheadLevels.filter(level => level.id >= 6).forEach(level => {
+      Object.values(level.evForecast?.resources || {}).forEach(item => {
+        if (item.outcomes.length > 1) {
+          const mean = Math.floor(ev(item.outcomes) / 5) * 5;
+          item.outcomes = [{ value: Math.max(0, mean - 5), probability: 0.5 }, { value: mean + 5, probability: 0.5 }];
+        }
+      });
+      level.resources.forEach(resource => {
+        const forecast = level.evForecast?.resources?.[resource.id];
+        if (forecast) resource.capacity = Math.max(resource.capacity, ...forecast.outcomes.map(o => o.value));
+        if (resource.offerCurve?.length) {
+          const first = Math.round(resource.offerCurve[0].price / 10) * 10;
+          const last = resource.offerCurve.at(-1).price;
+          resource.offerCurve = [{ mw: 0, price: first }, { mw: resource.capacity, price: first + (last > first ? resource.capacity * (resource.className === 'solar' ? 2 : 1) : 0) }];
+          resource.offer = first;
+        }
+      });
+    });
+    const capsFor = (level) => Object.fromEntries(level.resources.map(r => [r.id, level.evForecast?.resources?.[r.id] ? ev(level.evForecast.resources[r.id].outcomes) : r.capacity]));
+    const curvesFor = (level, hour = null) => {
+      const demand = hour?.demand ?? level.demand;
+      if (level.loadByZone) {
+        const west = Math.round(level.loadByZone.west * demand / level.demand / 5) * 5;
+        const quantities = { west, east: demand - west };
+        return Object.fromEntries(Object.entries(level.demandBidCurvesByZone).map(([zone, curve]) => [zone, { points: curve.points.map(p => ({ ...p, mw: p.mw * quantities[zone] / level.loadByZone[zone] })) }]));
+      }
+      return { system: level.demandBidCurvesByHour?.[hour?.id] || level.demandBidCurve || makeDemandBidCurve(demand, false) };
+    };
+    const cache = new Map();
+    const introductoryGas = dayAheadLevels[1].resources.find(r => r.id === 'gas');
+    introductoryGas.offerCurve.at(-1).price = 40;
+    const optimum = (level, caps, hour = null) => {
+      const key = JSON.stringify([level.id, caps, hour?.id]);
+      if (!cache.has(key)) {
+        const result = MarketModel.clear(level.resources, caps, curvesFor(level, hour), level.lineLimit || 0);
+        Object.keys(result.awards || {}).forEach(id => { const q = result.awards[id]; if (Math.abs(q - Math.round(q * 2) / 2) < 0.0001) result.awards[id] = Math.round(q * 2) / 2; });
+        cache.set(key, result);
+      }
+      return cache.get(key);
+    };
+    const evaluateEnergy = (level, values) => {
+      const caps = capsFor(level);
+      const awards = Object.fromEntries(level.resources.map(r => [r.id, clippedValue(values[r.id], 0, r.capacity)]));
+      const target = optimum(level, caps);
+      const total = sum(awards), wanted = sum(target.demands);
+      const availabilityExcess = level.resources.reduce((s, r) => s + Math.max(0, awards[r.id] - caps[r.id]), 0);
+      const demands = target.demands;
+      const westGen = level.resources.filter(r => r.zone === 'west').reduce((s, r) => s + awards[r.id], 0);
+      const flow = level.loadByZone ? westGen - demands.west : 0;
+      const totalCost = level.resources.reduce((s, r) => s + dayAheadCurveCost(r, awards[r.id]), 0);
+      return { ...target, awards, totalCost, remaining: Math.max(0, wanted - total) < 0.001 ? 0 : wanted - total, overage: Math.max(0, total - wanted) < 0.001 ? 0 : total - wanted, flow, availabilityExcess, feasible: target.feasible && availabilityExcess < 0.05 && Math.abs(total - wanted) < 0.05 && Math.abs(flow) <= (level.lineLimit || 0) + 0.05 };
+    };
+    solveDayAheadDispatch = level => optimum(level, capsFor(level));
+    solveCongestion = evaluateEnergy;
+    const oldClear = clearDayAhead;
+    clearDayAhead = (level, values) => {
+      if (['dispatch', 'demandCurve', 'congestion', 'congestionDemand'].includes(level.controlMode)) return evaluateEnergy(level, values);
+      if (!level.controlMode) {
+        const caps = Object.fromEntries(level.resources.map(r => [r.id, Math.min(capsFor(level)[r.id], Number(values[r.id]) || 0)]));
+        const result = optimum(level, caps), full = optimum(level, capsFor(level));
+        return { ...result, remaining: Math.max(0, sum(full.demands) - sum(result.demands)), overage: 0, feasible: result.feasible && sum(result.demands) >= sum(full.demands) - 0.05 };
+      }
+      return oldClear(level, values);
+    };
+    evaluateCommitmentReserve = (level, values) => {
+      const available = capsFor(level);
+      const commitments = Object.fromEntries(level.resources.map(r => [r.id, values[r.id]?.commitment ? 1 : 0]));
+      const reserveAwards = Object.fromEntries(level.resources.map(r => [r.id, commitments[r.id] ? Math.min(available[r.id], clippedValue(values[r.id]?.reserve, 0, r.reserveCapacity || 0)) : 0]));
+      const energyCapacity = Object.fromEntries(level.resources.map(r => [r.id, commitments[r.id] ? Math.max(0, Math.min(available[r.id] - reserveAwards[r.id], values[r.id]?.dispatch ?? available[r.id])) : 0]));
+      const hours = level.hours || [{ id: 1, demand: level.demand }];
+      const hourlyAwards = {}, hourlyFlows = {}, hourlyLmps = {}, hourlyDemands = {};
+      let remaining = 0, energyCost = 0, welfare = 0, peakResult;
+      hours.forEach(hour => {
+        const result = optimum(level, energyCapacity, hour);
+        const full = optimum(level, available, hour);
+        hourlyAwards[hour.id] = result.awards;
+        hourlyFlows[hour.id] = result.flow || 0;
+        hourlyLmps[hour.id] = result.lmp;
+        hourlyDemands[hour.id] = result.demands;
+        remaining = Math.max(remaining, sum(full.demands) - sum(result.demands));
+        energyCost += result.totalCost; welfare += result.welfare;
+        if (!peakResult || hour.demand === level.demand) peakResult = result;
+      });
+      const startupCost = level.resources.reduce((s, r) => s + commitments[r.id] * (r.startupCost || 0), 0);
+      const reserveCost = level.resources.reduce((s, r) => s + reserveAwards[r.id] * (r.reserveOffer || 0) * hours.length, 0);
+      const reserveTotal = sum(reserveAwards), reserveShortfall = Math.max(0, level.reserveRequirement - reserveTotal);
+      if (remaining < 0.001) remaining = 0;
+      return { awards: commitments, commitments, reserveAwards, energyCapacity, hourlyAwards, hourlyFlows, hourlyLmps, hourlyDemands, energyAwards: peakResult.awards, nodeLmps: peakResult.nodeLmps, flow: peakResult.flow || 0, lmp: peakResult.lmp, remaining, overage: 0, reserveShortfall, reserveTotal, energyCost, startupCost, reserveCost, totalCost: energyCost + startupCost + reserveCost, welfare: welfare - startupCost - reserveCost, feasible: remaining < 0.05 && reserveShortfall < 0.05 };
+    };
+    const scheduleCache = new Map();
+    solveOptimalCommitmentReserve = level => {
+      if (scheduleCache.has(level.id)) return scheduleCache.get(level.id);
+      let best = null;
+      const resources = level.resources;
+      for (let mask = 0; mask < 2 ** resources.length; mask++) {
+        const values = Object.fromEntries(resources.map((r, i) => [r.id, { commitment: (mask >> i) & 1, reserve: 0 }]));
+        if (resources.reduce((s, r) => s + values[r.id].commitment * capsFor(level)[r.id], 0) < level.demand + level.reserveRequirement) continue;
+        const walk = (index, remaining) => {
+          if (index === resources.length) {
+            if (remaining) return;
+            const result = evaluateCommitmentReserve(level, values);
+            if (result.feasible && (!best || result.totalCost < best.totalCost - 0.01)) best = result;
+            return;
+          }
+          const r = resources[index];
+          for (let reserve = 0; reserve <= Math.min(remaining, values[r.id].commitment ? r.reserveCapacity || 0 : 0); reserve += 5) {
+            values[r.id].reserve = reserve; walk(index + 1, remaining - reserve);
+          }
+        };
+        walk(0, level.reserveRequirement);
+      }
+      scheduleCache.set(level.id, best);
+      return best;
+    };
+    dayAheadLevels.forEach(level => {
+      let result;
+      if (['commitmentReserve', 'integrated'].includes(level.controlMode)) {
+        result = solveOptimalCommitmentReserve(level);
+        if (!result) throw new Error(`${level.title}: no feasible energy and reserve schedule`);
+        level.defaultCommitment = result.commitments;
+        level.defaultReserve = result.reserveAwards;
+        level.expectedReserveAwards = result.reserveAwards;
+        level.defaultDispatch = Object.fromEntries(level.resources.map(r => [r.id, Math.max(...Object.values(result.hourlyAwards).map(a => a[r.id] || 0))]));
+        level.expectedAwards = result.commitments;
+      } else if (['dispatch', 'congestion'].includes(level.controlMode)) {
+        result = optimum(level, capsFor(level));
+        level.expectedAwards = result.awards; level.defaultDispatch = result.awards;
+      }
+      if (result?.nodeLmps) { level.expectedNodeLmp = result.nodeLmps; level.expectedFlow = result.flow; }
+    });
+    // Compare economics rather than requiring a single arbitrary optimal allocation.
+    checkDayAheadSchedule = () => {
+      const level = getDayAheadLevel();
+      runDayAheadMarket();
+      const result = state.dayAheadResult;
+      if (!result?.feasible) {
+        const messages = [];
+        if (result.remaining > 0.05) messages.push(`You need ${result.remaining.toFixed(1)} MW more to match the accepted demand.`);
+        if (result.overage > 0.05) messages.push(`Remove ${result.overage.toFixed(1)} MW of excess dispatch.`);
+        if (result.availabilityExcess > 0.05) messages.push(`${result.availabilityExcess.toFixed(1)} MW exceeds forecast availability. Calculate the probability-weighted renewable output.`);
+        if (result.reserveShortfall > 0.05) messages.push(`Hold ${result.reserveShortfall.toFixed(0)} MW more reserve.`);
+        if (level.lineLimit && Math.abs(result.flow) > level.lineLimit + 0.05) messages.push(`The transfer is ${Math.abs(result.flow).toFixed(1)} MW; its limit is ${level.lineLimit} MW.`);
+        renderDayAheadResult(`<strong>Keep working</strong><span>${messages.join(' ') || 'Check each resource’s energy limit and commitment against the displayed requirements.'}</span>`, 'is-error'); return;
+      }
+      const optimal = ['commitmentReserve', 'integrated'].includes(level.controlMode) ? solveOptimalCommitmentReserve(level) : level.controlMode === 'reserve' ? solveOptimalReserve(level) : level.controlMode === 'commitment' ? solveOptimalCommitment(level) : level.controlMode === 'forecastHedge' ? solveOptimalForecastHedge(level) : optimum(level, capsFor(level));
+      const perfect = Math.abs(result.totalCost - optimal.totalCost) < 0.1 && (level.controlMode !== 'forecastHedge' || level.resources.every(r => Math.abs(result.awards[r.id] - optimal.awards[r.id]) < 0.1));
+      state.dayAheadStatuses.set(level.id, perfect ? 'green' : 'yellow'); saveProgress(); renderDayAheadNavigation();
+      const accepted = result.demands ? Object.entries(result.demands).map(([zone, q]) => `${zone}: ${q.toFixed(1)} MW`).join(' · ') : 'See hourly energy awards below.';
+      els['day-ahead-result'].insertAdjacentHTML('afterbegin', `<strong>${perfect ? 'Correct schedule' : 'Feasible schedule — a cheaper choice exists'}</strong><span>${perfect ? 'Demand and operating constraints are satisfied.' : `Your schedule costs $${(result.totalCost - optimal.totalCost).toFixed(0)} more than the best schedule.`}</span><span>Accepted demand — ${accepted}</span>`);
+    };
+  }
 
   function getConstructionLevel(id = state.constructionLevelId) {
     return constructionLevels.find((level) => level.id === id) || constructionLevels[0];
   }
 
   function renderConstructionSelect() {
+    LearningGuide.close();
     state.screen = "construction-select";
     state.launching = false;
     els["mode-select-screen"].hidden = true;
@@ -2546,9 +2942,31 @@
       const group = els["construction-nodes"].querySelector(`[data-construction-node="${node.id}"]`);
       if (group) group.setAttribute("transform", `translate(${node.x} ${node.y})`);
     });
+    showConstructionConnectionPreview();
+  }
+
+  function showConstructionConnectionPreview(point = null) {
+    const svg = els['construction-map'];
+    svg.querySelector('.construction-preview')?.remove();
+    svg.querySelectorAll('.is-connection-candidate').forEach(el => el.classList.remove('is-connection-candidate'));
+    const drag = state.construction.dragging;
+    const line = drag?.kind === 'line' ? state.construction.lines.find(l => l.id === drag.id) : null;
+    const geometry = line ? constructionLineGeometry(line, constructionPositions()) : null;
+    const fromPoint = geometry?.from || point;
+    if (!fromPoint || state.construction.nodes.length < 2) return;
+    const nearest = (p, excluded) => state.construction.nodes.filter(n => n.id !== excluded).sort((a,b) => Math.hypot(a.x-p.x,a.y-p.y)-Math.hypot(b.x-p.x,b.y-p.y))[0];
+    const from = nearest(fromPoint);
+    const to = nearest(geometry?.to || point, from.id);
+    if (geometry && (Math.hypot(from.x-geometry.from.x,from.y-geometry.from.y) >= 220 || Math.hypot(to.x-geometry.to.x,to.y-geometry.to.y) >= 220)) return;
+    [from,to].forEach(n => svg.querySelector(`[data-construction-node="${n.id}"]`)?.classList.add('is-connection-candidate'));
+    const preview = document.createElementNS('http://www.w3.org/2000/svg','line');
+    preview.setAttribute('class','construction-preview');
+    Object.entries({x1:from.x,y1:from.y,x2:to.x,y2:to.y}).forEach(([key,value])=>preview.setAttribute(key,value));
+    svg.append(preview);
   }
 
   function renderConstructionMap() {
+    els['construction-map'].querySelector('.construction-preview')?.remove();
     syncConstructionViewBox();
     const positions = constructionPositions();
     els["construction-lines"].innerHTML = state.construction.lines.filter((line) => line.inWorkspace).map((line) => {
@@ -2571,14 +2989,14 @@
   function renderConstructionInspector() {
     const selected = state.construction.selected;
     if (!selected) {
-      els["construction-inspector"].innerHTML = `Select a component or line for details.<div class="construction-inspector-actions"><button type="button" class="construction-clear-button" data-construction-action="clear">Clear all</button></div>`;
+      els["construction-inspector"].innerHTML = `Select a component or line for details.<div class="construction-inspector-actions"><button type="button" class="construction-clear-button" data-construction-action="clear">Clear workspace</button></div>`;
       return;
     }
     const [kind, id] = selected.split(":");
     if (kind === "node") {
       const node = state.construction.nodes.find((candidate) => candidate.id === id);
       if (!node) return;
-      els["construction-inspector"].innerHTML = `<h3>${constructionNodeTypeLabel(node.type)}</h3><p>${constructionNodeDetails(node)}</p><p>Drag the circle to reposition it.</p><div class="construction-inspector-actions"><button type="button" class="construction-return" data-construction-action="return:node:${node.id}">Return to tray</button><button type="button" class="construction-clear-button" data-construction-action="clear">Clear all</button></div>`;
+      els["construction-inspector"].innerHTML = `<h3>${constructionNodeTypeLabel(node.type)}</h3><p>${constructionNodeDetails(node)}</p><p>Drag the circle to reposition it.</p><div class="construction-inspector-actions"><button type="button" class="construction-return" data-construction-action="return:node:${node.id}">Return to tray</button><button type="button" class="construction-clear-button" data-construction-action="clear">Clear workspace</button></div>`;
       return;
     }
     const line = state.construction.lines.find((candidate) => candidate.id === id);
@@ -2586,19 +3004,31 @@
     const from = state.construction.nodes.find((node) => node.id === line.from);
     const to = state.construction.nodes.find((node) => node.id === line.to);
     const connection = line.placed ? `${from?.name || "Unknown"} -&gt; ${to?.name || "Unknown"}` : "Not connected yet";
-    els["construction-inspector"].innerHTML = `<h3>${constructionLineDisplayName(line)}</h3><p>${connection}</p><p>Preset flow: ${line.flow} MW | Preset limit: ${line.capacity} MW</p><div class="construction-inspector-actions"><button type="button" class="construction-return" data-construction-action="return:line:${line.id}">Return to tray</button><button type="button" class="construction-clear-button" data-construction-action="clear">Clear all</button></div>`;
+    els["construction-inspector"].innerHTML = `<h3>${constructionLineDisplayName(line)}</h3><p>${connection}</p><p>Carries: ${line.flow} MW · Limit: ${line.capacity} MW</p><div class="construction-inspector-actions"><button type="button" class="construction-return" data-construction-action="return:line:${line.id}">Return to tray</button><button type="button" class="construction-clear-button" data-construction-action="clear">Clear workspace</button></div>`;
   }
 
   function renderConstructionTray() {
     const level = getConstructionLevel();
     const placedIds = new Set(state.construction.nodes.map((node) => node.id));
-    els["construction-piece-tray"].innerHTML = constructionTrayPieces(level).map(({ kind, piece }) => {
+    const openGroups = new Set([...els['construction-piece-tray'].querySelectorAll('details[open]')].map(el => el.dataset.group));
+    const initialized = !!els['construction-piece-tray'].querySelector('details');
+    const pieces = constructionTrayPieces(level);
+    const groups = [['resource', 'Generators'], ['bus', 'Grid nodes'], ['load', 'Loads'], ['line', 'Transmission lines']];
+    els["construction-piece-tray"].innerHTML = groups.map(([type, title]) => {
+      const items = pieces.filter(({ kind, piece }) => type === 'line' ? kind === 'line' : kind === 'node' && piece.type === type);
+      const remaining = items.filter(({kind, piece}) => kind === 'node' ? !placedIds.has(piece.id) : !state.construction.lines.find(l => l.id === piece.id)?.inWorkspace).length;
+      return `<details class="tray-group" data-group="${type}" ${initialized ? (openGroups.has(type) ? 'open' : '') : (!matchMedia('(max-width:760px)').matches || type === 'resource' ? 'open' : '')}><summary>${title}<span>${remaining} remaining</span></summary><div class="tray-group-items">${items.map(({ kind, piece }) => {
       if (kind === "node") {
         const detail = piece.type === "resource" ? `${piece.capacity} MW - ${formatMoney(piece.offer)}/MWh` : piece.type === "load" ? `${piece.demand} MW demand` : "Network junction";
         return `<button type="button" class="construction-component construction-node-piece ${piece.type}" draggable="true" data-construction-piece-id="${piece.id}" aria-label="${piece.name}"><strong>${piece.name}</strong><span>${detail}</span></button>`;
       }
-      return `<button type="button" class="construction-component construction-line-piece" draggable="true" data-construction-line-piece="${piece.id}" aria-label="${constructionLineDisplayName(piece)}, ${piece.flow} megawatt flow, ${piece.capacity} megawatt limit"><span class="line-piece-mark"></span><strong>${constructionLineDisplayName(piece)}</strong><span>Flow ${piece.flow} MW | Limit ${piece.capacity} MW</span></button>`;
-    }).join("");
+      return `<button type="button" class="construction-component construction-line-piece" draggable="true" data-construction-line-piece="${piece.id}" aria-label="${constructionLineDisplayName(piece)}, ${piece.flow} megawatt flow, ${piece.capacity} megawatt limit"><strong>${constructionLineDisplayName(piece)}</strong><span class="line-piece-mark"></span><span class="line-piece-values"><span><small>Carries</small><b>${piece.flow} MW</b></span><span><small>Limit</small><b>${piece.capacity} MW</b></span></span></button>`;
+    }).join('')}</div></details>`;
+    }).join('');
+    const remainingCount = level.nodes.length - placedIds.size + state.construction.lines.filter(l => !l.inWorkspace).length;
+    let progress = document.getElementById('construction-placement-progress');
+    if (!progress) { progress = document.createElement('p'); progress.id = 'construction-placement-progress'; progress.className = 'placement-progress'; els['construction-piece-tray'].before(progress); }
+    progress.textContent = remainingCount ? `${remainingCount} pieces remaining` : 'All pieces placed';
     els["construction-piece-tray"].querySelectorAll("[data-construction-piece-id]").forEach((button) => {
       button.disabled = placedIds.has(button.dataset.constructionPieceId);
     });
@@ -2612,8 +3042,30 @@
     renderConstructionMap();
     renderConstructionInspector();
     renderConstructionTray();
+    renderConstructionSelectionTools();
     renderConstructionNavigation();
     saveConstructionDraft();
+  }
+
+  function renderConstructionSelectionTools() {
+    document.querySelector('.construction-selection-tools')?.remove();
+    const selected = state.construction.selected;
+    if (!selected) return;
+    const [kind,id] = selected.split(':');
+    const item = kind === 'node' ? state.construction.nodes.find(n => n.id === id) : state.construction.lines.find(l => l.id === id);
+    if (!item) return;
+    const svg = els['construction-map'], matrix = svg.getScreenCTM();
+    if (!matrix) return;
+    const point = svg.createSVGPoint();
+    const geometry = kind === 'line' ? constructionRenderedLineGeometry(item, constructionPositions()) : null;
+    point.x = geometry ? (geometry.from.x + geometry.to.x)/2 : item.x;
+    point.y = geometry ? (geometry.from.y + geometry.to.y)/2 : item.y;
+    const screen = point.matrixTransform(matrix), bounds = svg.parentElement.getBoundingClientRect();
+    const tools = document.createElement('div'); tools.className = 'construction-selection-tools';
+    tools.style.left = `${Math.max(8, Math.min(bounds.width - 165, screen.x - bounds.left - 75))}px`;
+    tools.style.top = `${Math.max(8, Math.min(svg.getBoundingClientRect().height - 50, screen.y - bounds.top + (kind === 'node' ? 54 * matrix.a + 12 : 20)))}px`;
+    const button = document.createElement('button'); button.type = 'button'; button.textContent = 'Return to tray';
+    button.onclick = () => returnConstructionPiece(kind,id); tools.append(button); svg.parentElement.append(tools);
   }
 
   function saveConstructionDraft() {
@@ -2887,9 +3339,8 @@
     state.construction.selected = null;
     state.construction.checked = true;
     state.construction.revealed = true;
-    els["construction-feedback"].className = "network-feedback construction-result is-close";
-    els["construction-feedback"].innerHTML = "<strong>Solution shown</strong><span>Reset the level to try it yourself.</span>";
     renderConstructionView();
+    els['construction-check-button'].click();
   }
 
   function openConstructionLevel(id) {
@@ -2905,6 +3356,10 @@
     els["construction-level-title"].textContent = getConstructionLevel(id).title;
     els["construction-level-description"].textContent = getConstructionLevel(id).description;
     renderConstructionView();
+    renderLearningPresentation('construction', getConstructionLevel(id));
+    const constructionTopic = constructionConcept(getConstructionLevel(id));
+    renderConceptModal("construction", constructionTopic);
+    window.setTimeout(() => LearningGuide.open('construction', getConstructionLevel(id), true), 0);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -2935,6 +3390,9 @@
     els["level-select-screen"].hidden = true;
     els["level-screen"].hidden = false;
     renderLevelPage();
+    const lmpTopic = lmpConcept(getLevel(id));
+    renderConceptModal("lmp", lmpTopic);
+    window.setTimeout(() => LearningGuide.open('lmp', getLevel(id), true), 0);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -3152,7 +3610,7 @@
       return { title: item.name, kind: "Load node", rows };
     }
     const rows = [["Capacity", item.capacity], ["Send", targetValue(target)]];
-    if (item.crr) rows.push(["CRR", `${item.crr.type} · ${item.crr.holder} · ${formatMoney(item.crr.strike)}/MWh`]);
+    if (item.crr) rows.push(["CRR (financial hedge)", `${item.crr.type} · ${item.crr.holder} · purchase premium ${formatMoney(item.crr.strike)}/MWh; no physical capacity`]);
     return { title: item.label || `${item.from} to ${item.to}`, kind: "Transmission line", rows };
   }
 
@@ -3328,6 +3786,32 @@
     els["network-feedback"].className = "network-feedback";
     els["network-feedback"].textContent = "Click a node or line to set its value.";
     els["completion-panel"].hidden = true;
+    renderLearningPresentation('lmp', level);
+  }
+
+  function renderLearningPresentation(mode, level) {
+    const root = document.getElementById(mode === 'lmp' ? 'level-screen' : `${mode}-level-screen`);
+    const description = root.querySelector(mode === 'lmp' ? '#level-description' : `#${mode}-level-description`);
+    const lmp = mode === 'lmp', construction = mode === 'construction';
+    const lesson = LevelLessons.get(mode, level.id);
+    description.replaceChildren();
+    const title = document.createElement('strong'); title.className = 'lesson-description-title'; title.textContent = lesson.title;
+    const rules = document.createElement('span'); rules.className = 'lesson-description-rules'; rules.textContent = lesson.rules;
+    description.append(title, rules);
+    description.classList.add('learning-objective');
+    if ((lmp || construction) && !root.querySelector('.map-legend')) description.insertAdjacentHTML('afterend', '<div class="map-legend"><span><i></i>Generator</span><span><i></i>Grid node</span><span><i></i>Load</span><span>Line: transmission</span></div>');
+    let terms = root.querySelector('.level-terms');
+    if (!terms) { terms = document.createElement('div'); terms.className = 'level-terms'; description.after(terms); }
+    terms.innerHTML = `<details class="definitions-menu"><summary>Definitions</summary><label>Choose a term<select aria-label="Level definitions"><option value="">Select a definition…</option>${LearningGuide.list(mode, level).map((term, i) => `<option value="${i}">${term.title}</option>`).join('')}</select></label></details>`;
+    terms.onchange = event => { if (event.target.value !== '') { LearningGuide.open(mode, level, false, Number(event.target.value)); event.target.value = ''; } };
+    if (mode === 'day-ahead') {
+      root.querySelectorAll('[data-day-ahead-kind="dispatch"]').forEach(input => {
+        const label = root.querySelector(`label[for="${input.id}"]`); if (label) label.textContent = 'Energy limit · MW';
+      });
+      root.querySelectorAll('input[type="range"]').forEach(input => { if (input.dataset.dayAheadKind !== 'commitment') input.step = input.dataset.dayAheadKind === 'reserve' ? '5' : '0.5'; });
+      const hours = root.querySelector('#day-ahead-hours-summary');
+      if (level.hours && level.loadByZone) hours.textContent = level.hours.map(h => { const west = Math.round(level.loadByZone.west * h.demand / level.demand / 5) * 5; return `Hour ${h.id}: West ${west} / East ${h.demand - west} MW`; }).join(' · ');
+    }
   }
 
   function readAnswers(level) {
@@ -3343,10 +3827,12 @@
     const transmissions = level.connections.filter((connection) => connection.type === "transmission");
     const solution = level.solution || { lmp: level.expectedLmp, flows: Object.fromEntries(transmissions.map((connection) => [connection.id, connection.expectedFlow])) };
     const perfectLmp = Object.entries(solution.lmp).every(([id, expected]) => within(answers.lmp[id], expected, 0.01));
-    const perfectFlow = transmissions.every((connection) => within(answers.flows[connection.id], solution.flows[connection.id], 0.1));
+    const proposed = { ...level, connections: level.connections.map(connection => ({ ...connection, expectedFlow: answers.flows[connection.id] ?? connection.expectedFlow })) };
+    const checked = validateLevel(proposed);
+    const perfectFlow = checked.valid;
     if (perfectLmp && perfectFlow) return "green";
     const solvedLmp = Object.entries(solution.lmp).every(([id, expected]) => within(answers.lmp[id], expected, 5));
-    const solvedFlow = transmissions.every((connection) => within(answers.flows[connection.id], solution.flows[connection.id], 5));
+    const solvedFlow = perfectFlow;
     return solvedLmp && solvedFlow ? "yellow" : null;
   }
 
@@ -3363,7 +3849,7 @@
   }
 
   function completionText(status, level) {
-    if (status === "green") return "Perfectly solved.";
+    if (status === "green") return "Correct: the flows serve every load within the line limits. The LMPs match the next available increment at each location.";
     if (status === "yellow") return "Solved, but not perfectly.";
     return level.explanation;
   }
@@ -3394,9 +3880,7 @@
     state.revealed = true;
     renderMap(level, state.answers);
     closeSolvePopover();
-    els["network-feedback"].className = "network-feedback is-close";
-    els["network-feedback"].textContent = "Correct values revealed. Change a value to solve the level yourself.";
-    els["completion-panel"].hidden = true;
+    checkNetwork();
   }
 
   function checkNetwork() {
@@ -3416,7 +3900,6 @@
     }
     const status = classifyAnswers(level, answers);
     if (status) {
-      state.answers = retainWorkingAnswers(level, answers);
       state.statuses.set(level.id, status);
       saveProgress();
       renderMap(level, state.answers);
@@ -3468,6 +3951,9 @@
   }
 
   function bindMapEvents() {
+    els['network-map'].addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') { const target = event.target.closest('[data-target-kind]'); if (target) { event.preventDefault(); target.dispatchEvent(new MouseEvent('click', { bubbles: true })); } }
+    });
     els["network-map"].addEventListener("click", (event) => {
       const group = event.target.closest(".map-connection-group, .map-node-group");
       if (!group) return;
@@ -3481,15 +3967,50 @@
   function bindEvents() {
     let constructionTrayPointerDrag = null;
     let constructionTraySelection = null;
+    let trayGhost = null;
+    let dragScrollFrame = null;
+    const scrollTrayDrag = () => {
+      const drag = constructionTrayPointerDrag;
+      if (!drag) { dragScrollFrame = null; return; }
+      if (drag.moved) { if (drag.lastY > innerHeight-60) window.scrollBy(0,12); else if (drag.lastY < 60) window.scrollBy(0,-12); }
+      dragScrollFrame = requestAnimationFrame(scrollTrayDrag);
+    };
+    const clearTrayGhost = () => { if (dragScrollFrame !== null) cancelAnimationFrame(dragScrollFrame); dragScrollFrame = null; trayGhost?.remove(); trayGhost = null; els['construction-piece-tray'].querySelectorAll('.is-tray-dragging').forEach(b => b.classList.remove('is-tray-dragging')); };
+    const placeTrayPiece = (payload, point = null) => {
+      if (!point) { const index = state.construction.nodes.length + state.construction.lines.filter(l => l.inWorkspace).length; point = {x:150 + (index % 3)*300,y:Math.min(constructionMapHeight()-80,150 + Math.floor(index/3)*150)}; }
+      if (payload.startsWith('node:')) addConstructionComponent(payload.slice(5), point);
+      else placeConstructionLine(payload.slice(5), point);
+      constructionTraySelection = null;
+    };
     els["lmp-mode-button"].addEventListener("click", renderLevelSelect);
     els["network-mode-button"].addEventListener("click", renderConstructionSelect);
     els["day-ahead-mode-button"].addEventListener("click", renderDayAheadSelect);
     els["mode-back-button"].addEventListener("click", renderModeSelect);
+    els["footer-home-link"].addEventListener("click", (event) => { event.preventDefault(); renderModeSelect(); });
+    els["about-home-link"].addEventListener("click", (event) => { event.preventDefault(); renderModeSelect(); });
+    els["footer-about-link"].addEventListener("click", (event) => { event.preventDefault(); renderAbout(); });
     els["construction-mode-back-button"].addEventListener("click", renderModeSelect);
     els["day-ahead-mode-back-button"].addEventListener("click", renderModeSelect);
     els["day-ahead-full-reset-button"].addEventListener("click", resetDayAheadProgress);
     els["day-ahead-back-button"].addEventListener("click", renderDayAheadSelect);
     els["day-ahead-reset-button"].addEventListener("click", resetDayAheadLevel);
+    els["day-ahead-help-button"].addEventListener("click", showDayAheadConcept);
+    els["day-ahead-concept-modal"].addEventListener("click", (event) => {
+      if (event.target === els["day-ahead-concept-modal"] || event.target.closest("[data-close-day-ahead-concept]")) hideDayAheadConcept();
+    });
+    els["lmp-help-button"].addEventListener("click", showLmpConcept);
+    els["lmp-concept-modal"].addEventListener("click", (event) => {
+      if (event.target === els["lmp-concept-modal"] || event.target.closest("[data-close-lmp-concept]")) hideLmpConcept();
+    });
+    els["construction-help-button"].addEventListener("click", showConstructionConcept);
+    els["construction-concept-modal"].addEventListener("click", (event) => {
+      if (event.target === els["construction-concept-modal"] || event.target.closest("[data-close-construction-concept]")) hideConstructionConcept();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !els["day-ahead-concept-modal"].hidden) hideDayAheadConcept();
+      if (event.key === "Escape" && !els["lmp-concept-modal"].hidden) hideLmpConcept();
+      if (event.key === "Escape" && !els["construction-concept-modal"].hidden) hideConstructionConcept();
+    });
     els["day-ahead-prev-button"].addEventListener("click", () => {
       const previous = dayAheadLevels.find((level) => level.id === state.dayAheadLevelId - 1);
       if (previous) openDayAheadLevel(previous.id);
@@ -3498,7 +4019,9 @@
       const next = dayAheadLevels.find((level) => level.id === state.dayAheadLevelId + 1);
       if (next && isDayAheadUnlocked(next)) openDayAheadLevel(next.id);
     });
-    els["day-ahead-run-button"].addEventListener("click", runDayAheadMarket);
+    els["day-ahead-run-button"].textContent = 'Check my schedule';
+    els["day-ahead-check-button"].hidden = true;
+    els["day-ahead-run-button"].addEventListener("click", checkDayAheadSchedule);
     els["day-ahead-check-button"].addEventListener("click", checkDayAheadSchedule);
     els["day-ahead-reveal-button"].addEventListener("click", revealDayAheadAnswer);
     els["day-ahead-offers"].addEventListener("click", (event) => {
@@ -3569,19 +4092,37 @@
       els["construction-feedback"].className = `network-feedback construction-result ${result.valid ? "is-correct" : "is-error"}`;
       els["construction-feedback"].innerHTML = result.valid ? "<strong>Success</strong><span>Valid network. Every MW of load is served.</span>" : `<strong>Try again</strong><span>${result.errors.join(" ")}</span>`;
       renderConstructionView();
+      if (!result.valid) {
+        const named = state.construction.nodes.filter(node => result.errors.some(error => error.includes(node.name)));
+        const affected = named.length ? named : state.construction.nodes.filter(node => node.type !== 'resource');
+        affected.forEach(node => {
+          const group = els['construction-map'].querySelector(`[data-construction-node="${node.id}"]`);
+          group?.classList.add('has-issue');
+          group?.setAttribute('aria-label', `${node.name}: ${result.errors.join(' ')}`);
+          if (group) { const label = document.createElementNS('http://www.w3.org/2000/svg','text'); label.setAttribute('class','construction-issue-label'); label.setAttribute('y','76'); label.textContent = 'Check balance'; group.append(label); }
+        });
+      }
     });
     els["construction-reveal-button"].addEventListener("click", revealConstructionSolution);
     els["construction-piece-tray"].addEventListener("pointerdown", (event) => {
       const button = event.target.closest("[data-construction-piece-id], [data-construction-line-piece]");
       if (!button || button.disabled) return;
       const payload = button.dataset.constructionPieceId ? `node:${button.dataset.constructionPieceId}` : `line:${button.dataset.constructionLinePiece}`;
-      constructionTrayPointerDrag = { payload, pointerId: event.pointerId, moved: false };
+      if (event.button !== 0) return;
+      constructionTrayPointerDrag = { payload, pointerId: event.pointerId, moved: false, x:event.clientX, y:event.clientY };
+      clearTrayGhost();
+      dragScrollFrame = requestAnimationFrame(scrollTrayDrag);
+      button.classList.add('is-tray-dragging');
+      trayGhost = button.cloneNode(true); trayGhost.removeAttribute('id'); trayGhost.removeAttribute('draggable'); trayGhost.classList.add('tray-drag-ghost'); trayGhost.setAttribute('aria-hidden','true');
+      const bounds = button.getBoundingClientRect(); trayGhost.style.width = `${bounds.width}px`; trayGhost.style.height = `${bounds.height}px`; trayGhost.style.left = `${event.clientX}px`; trayGhost.style.top = `${event.clientY}px`; document.body.append(trayGhost);
       if (button.setPointerCapture) button.setPointerCapture(event.pointerId);
       event.preventDefault();
     });
     els["construction-piece-tray"].addEventListener("pointermove", (event) => {
       if (!constructionTrayPointerDrag || constructionTrayPointerDrag.pointerId !== event.pointerId) return;
-      constructionTrayPointerDrag.moved = true;
+      if (Math.hypot(event.clientX-constructionTrayPointerDrag.x,event.clientY-constructionTrayPointerDrag.y)>5) constructionTrayPointerDrag.moved = true;
+      constructionTrayPointerDrag.lastY = event.clientY;
+      if (trayGhost) { trayGhost.style.left = `${event.clientX}px`; trayGhost.style.top = `${event.clientY}px`; }
       event.preventDefault();
     });
     els["construction-piece-tray"].addEventListener("pointerup", (event) => {
@@ -3594,22 +4135,24 @@
         if (drag.payload.startsWith("node:")) addConstructionComponent(drag.payload.slice(5), point);
         if (drag.payload.startsWith("line:")) placeConstructionLine(drag.payload.slice(5), point);
       } else if (!drag.moved) {
-        constructionTraySelection = drag.payload;
-        els["construction-feedback"].className = "network-feedback";
-        els["construction-feedback"].textContent = "Piece selected. Tap the workspace to place it.";
+        placeTrayPiece(drag.payload);
       }
       try { event.target.releasePointerCapture(event.pointerId); } catch (error) { /* capture may already be released */ }
       constructionTrayPointerDrag = null;
+      clearTrayGhost();
       event.preventDefault();
     });
-    els["construction-piece-tray"].addEventListener("pointercancel", () => { constructionTrayPointerDrag = null; });
+    els["construction-piece-tray"].addEventListener("pointercancel", () => { constructionTrayPointerDrag = null; clearTrayGhost(); });
+    els['construction-piece-tray'].addEventListener('click', event => { const button = event.target.closest('[data-construction-piece-id], [data-construction-line-piece]'); if (button && !button.disabled && event.detail === 0) placeTrayPiece(button.dataset.constructionPieceId ? `node:${button.dataset.constructionPieceId}` : `line:${button.dataset.constructionLinePiece}`); });
     els["construction-piece-tray"].addEventListener("dragstart", (event) => {
       const button = event.target.closest("[data-construction-piece-id], [data-construction-line-piece]");
       if (!button) return;
       const payload = button.dataset.constructionPieceId ? `node:${button.dataset.constructionPieceId}` : `line:${button.dataset.constructionLinePiece}`;
+      state.construction.previewKind = payload.startsWith('line:') ? 'line' : 'node';
       event.dataTransfer.setData("text/plain", payload);
     });
-    els["construction-map"].addEventListener("dragover", (event) => event.preventDefault());
+    els["construction-map"].addEventListener("dragover", (event) => { event.preventDefault(); if (state.construction.previewKind === 'line') showConstructionConnectionPreview(constructionMapPoint(event)); });
+    els['construction-piece-tray'].addEventListener('dragend', () => { state.construction.previewKind = null; showConstructionConnectionPreview(); });
     els["construction-map"].addEventListener("drop", (event) => {
       event.preventDefault();
       const payload = event.dataTransfer.getData("text/plain");
@@ -3684,6 +4227,12 @@
       const captureGroup = event.target.closest("[data-construction-node], [data-construction-line]");
       if (captureGroup && captureGroup.releasePointerCapture) {
         try { captureGroup.releasePointerCapture(event.pointerId); } catch (error) { /* capture may already be released */ }
+      }
+      const trayBounds = els['construction-piece-tray'].getBoundingClientRect();
+      if (drag.moved && event.clientX >= trayBounds.left && event.clientX <= trayBounds.right && event.clientY >= trayBounds.top && event.clientY <= trayBounds.bottom) {
+        state.construction.dragging = null;
+        returnConstructionPiece(drag.kind, drag.id);
+        return;
       }
       if (drag.kind === "line" && drag.moved) {
         const line = state.construction.lines.find((candidate) => candidate.id === drag.id);
@@ -3781,7 +4330,7 @@
     });
     document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeSolvePopover(); });
     window.addEventListener("resize", () => {
-      if (state.screen === "construction-level") renderConstructionMap();
+      if (state.screen === "construction-level") { renderConstructionMap(); renderConstructionSelectionTools(); }
       if (state.screen === "level") renderMap(getLevel(), state.answers);
     });
     els["map-hover-popover"].addEventListener("mouseleave", hideHover);

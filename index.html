@@ -6,7 +6,11 @@
     <meta name="description" content="Power Market Solver." />
     <title>Power Market Solver</title>
     <link rel="stylesheet" href="game.css" />
+    <script src="market-model.js" defer></script>
+    <script src="learning-guide.js" defer></script>
+    <script src="level-lessons.js" defer></script>
     <script src="game.js" defer></script>
+    <script src="ui-polish.js" defer></script>
   </head>
   <body>
     <main class="game-shell">
@@ -14,9 +18,9 @@
       <section id="mode-select-screen" class="mode-screen" aria-labelledby="mode-title">
         <h1 id="mode-title">Power Market Solver</h1>
         <div class="mode-circles" aria-label="Game modes">
-          <button type="button" class="mode-circle mode-lmp" id="lmp-mode-button">LMP Solver</button>
-          <button type="button" class="mode-circle mode-congestion" id="network-mode-button">Network Construction</button>
-          <button type="button" class="mode-circle mode-day-ahead" id="day-ahead-mode-button">Day-Ahead Market</button>
+          <button type="button" class="mode-circle mode-lmp" id="lmp-mode-button" aria-label="LMP Solver">LMP Solver<small>Find prices and flows</small></button>
+          <button type="button" class="mode-circle mode-congestion" id="network-mode-button" aria-label="Network Construction">Network Construction<small>Build a balanced network</small></button>
+          <button type="button" class="mode-circle mode-day-ahead" id="day-ahead-mode-button" aria-label="Day-Ahead Market">Day-Ahead Market<small>Choose a supply schedule</small></button>
         </div>
       </section>
 
@@ -34,25 +38,35 @@
           <h2 id="day-ahead-level-title">Level 0: Single-hour clearing</h2>
           <div class="toolbar-actions">
             <button type="button" class="toolbar-button" id="day-ahead-reset-button" aria-label="Reset day-ahead level">&#8635;</button>
+            <button type="button" class="toolbar-button concept-help-button" id="day-ahead-help-button" aria-label="Explain this level">?</button>
           </div>
         </header>
-        <p class="day-ahead-instruction"><strong>Rules:</strong> Set the MW for each resource, then run the day-ahead market. Follow the objective described for the level.</p>
+        <p class="day-ahead-instruction"><strong>Rules:</strong> Set the MW for each resource, then run the day-ahead market. The demand bid never exceeds the displayed maximum demand.</p>
         <p id="day-ahead-level-description" class="day-ahead-level-description"></p>
         <div class="day-ahead-summary">
           <div class="day-ahead-requirement-box"><span>Operating hours</span><strong id="day-ahead-hours-summary">1</strong></div>
-          <div class="day-ahead-requirement-box"><span>Load requirement</span><strong id="day-ahead-demand">70 MW</strong></div>
+          <div class="day-ahead-requirement-box"><span>Maximum demand bid</span><strong id="day-ahead-demand">70 MW</strong></div>
           <div class="day-ahead-requirement-box"><span>Reserve requirement</span><strong id="day-ahead-reserve-summary">None</strong></div>
           <div class="day-ahead-requirement-box"><span>Transmission limit</span><strong id="day-ahead-network-summary">None — single bus</strong></div>
         </div>
         <div id="day-ahead-forecast" class="day-ahead-forecast" hidden aria-label="Probability forecast"></div>
+        <nav class="day-ahead-panel-jumps" aria-label="Day-ahead sections">
+          <a href="#day-ahead-demand-title">Demand</a>
+          <a href="#day-ahead-offer-title">Resources</a>
+          <a href="#day-ahead-stack-title">Final answer</a>
+        </nav>
         <div class="day-ahead-layout">
-          <section class="day-ahead-panel" aria-labelledby="day-ahead-offer-title">
-            <h3 id="day-ahead-offer-title">Supply offers</h3>
+          <section class="day-ahead-panel day-ahead-demand-panel" aria-labelledby="day-ahead-demand-title">
+            <h3 id="day-ahead-demand-title">Demand</h3>
+            <div id="day-ahead-demand-curve" class="day-ahead-demand-curve" aria-label="Demand bid curve"></div>
+          </section>
+          <section class="day-ahead-panel day-ahead-resource-panel" aria-labelledby="day-ahead-offer-title">
+            <h3 id="day-ahead-offer-title">Resource choices</h3>
             <p class="day-ahead-panel-note">Set each resource's MW with its slider. Curve levels use the offer curve to price every MW.</p>
             <div id="day-ahead-offers" class="day-ahead-offers"></div>
           </section>
-          <section class="day-ahead-panel" aria-labelledby="day-ahead-stack-title">
-            <h3 id="day-ahead-stack-title">Market clearing stack</h3>
+          <section class="day-ahead-panel day-ahead-answer-panel" aria-labelledby="day-ahead-stack-title">
+            <h3 id="day-ahead-stack-title">Your final answer</h3>
             <div id="day-ahead-stack" class="day-ahead-stack"></div>
             <div class="day-ahead-stack-axis"><span>0 MW</span><span id="day-ahead-stack-max">80 MW offered</span></div>
             <div class="day-ahead-actions">
@@ -66,6 +80,15 @@
         <div class="day-ahead-navigation" aria-label="Day-ahead level navigation">
           <button type="button" class="construction-nav-button" id="day-ahead-prev-button" disabled>&#8592; Previous</button>
           <button type="button" class="construction-nav-button" id="day-ahead-next-button" disabled>Next &#8594;</button>
+        </div>
+        <div id="day-ahead-concept-modal" class="concept-modal" hidden role="dialog" aria-modal="true" aria-labelledby="day-ahead-concept-title">
+          <div class="concept-modal-card">
+            <button type="button" class="concept-modal-close" data-close-day-ahead-concept aria-label="Close explanation">×</button>
+            <h3 id="day-ahead-concept-title"></h3>
+            <p id="day-ahead-concept-body"></p>
+            <div id="day-ahead-concept-visual" class="concept-visual"></div>
+            <button type="button" class="check-button concept-modal-done" data-close-day-ahead-concept>Got it</button>
+          </div>
         </div>
       </section>
 
@@ -82,15 +105,16 @@
           <h2 id="construction-level-title">Level 0: Basic path</h2>
           <div class="toolbar-actions">
             <button type="button" class="toolbar-button" id="construction-reset-button" aria-label="Reset construction">&#8635;</button>
+            <button type="button" class="toolbar-button concept-help-button" id="construction-help-button" aria-label="Explain this level">?</button>
           </div>
         </header>
-        <p class="construction-instruction"><strong>Rules:</strong> Use every piece. Drag the pieces from the starting box into the workspace. Lines already have their values.</p>
+        <p class="construction-instruction"><strong>Rules:</strong> Use every piece. Click to add it, or drag it into the workspace. Drag back or right-click to return it.</p>
         <p id="construction-level-description" class="construction-level-description"></p>
         <div class="construction-layout">
           <aside class="construction-palette" aria-label="Network component palette">
             <h3>Starting box</h3>
             <div id="construction-piece-tray" class="construction-piece-tray" aria-label="Available network pieces"></div>
-            <p class="construction-palette-note">Place the circles first, then drag each line near the two nodes it should connect.</p>
+            <p class="construction-palette-note">Place the circles first. Move each line near the two circles it should connect.</p>
           </aside>
           <div class="construction-workspace">
             <svg id="construction-map" class="construction-map" viewBox="0 0 1000 520" role="img" aria-labelledby="construction-map-title construction-map-description">
@@ -111,6 +135,15 @@
           <button type="button" class="construction-nav-button" id="construction-prev-button">&#8592; Previous</button>
           <button type="button" class="construction-nav-button" id="construction-next-button">Next &#8594;</button>
         </div>
+        <div id="construction-concept-modal" class="concept-modal" hidden role="dialog" aria-modal="true" aria-labelledby="construction-concept-title">
+          <div class="concept-modal-card">
+            <button type="button" class="concept-modal-close" data-close-construction-concept aria-label="Close explanation">×</button>
+            <h3 id="construction-concept-title"></h3>
+            <p id="construction-concept-body"></p>
+            <div id="construction-concept-visual" class="concept-visual"></div>
+            <button type="button" class="check-button concept-modal-done" data-close-construction-concept>Got it</button>
+          </div>
+        </div>
       </section>
 
       <section id="level-select-screen" class="home-screen" hidden aria-labelledby="game-title">
@@ -127,10 +160,11 @@
           <h2 id="level-page-title">Level 0</h2>
           <div class="toolbar-actions">
             <button type="button" class="toolbar-button" id="reset-level-button" aria-label="Reset level">&#8635;</button>
+            <button type="button" class="toolbar-button concept-help-button" id="lmp-help-button" aria-label="Explain this level">?</button>
           </div>
         </header>
 
-        <p class="level-instruction">Hover each for more details. Click the highlighted to solve!</p>
+        <p class="level-instruction">Select a node for its price or a line for its flow. Use ? to look up any term.</p>
         <p id="level-description" class="level-description"></p>
 
         <section class="network-section" aria-labelledby="network-title">
@@ -162,7 +196,32 @@
             <button type="button" class="next-button" id="next-level-button">Next &#8594;</button>
           </div>
         </section>
+        <div id="lmp-concept-modal" class="concept-modal" hidden role="dialog" aria-modal="true" aria-labelledby="lmp-concept-title">
+          <div class="concept-modal-card">
+            <button type="button" class="concept-modal-close" data-close-lmp-concept aria-label="Close explanation">×</button>
+            <h3 id="lmp-concept-title"></h3>
+            <p id="lmp-concept-body"></p>
+            <div id="lmp-concept-visual" class="concept-visual"></div>
+            <button type="button" class="check-button concept-modal-done" data-close-lmp-concept>Got it</button>
+          </div>
+        </div>
       </section>
+
+      <section id="about-screen" class="about-screen" hidden aria-labelledby="about-title">
+        <a class="about-brand" href="#home" id="about-home-link">Power Market Solver</a>
+        <h1 id="about-title">About</h1>
+        <div class="about-copy">
+          <p>I made this project to help practice the knowledge I've developed about power market structure from ERCOT trainings (shoutout Bill and Lloyd). I'm aiming to further develop models to focus more on the financial and trading aspects of the market. I'm particularly interested in how BESS can be implemented into grids more effectively.</p>
+          <p>Power has so much importance in our world and it's potential feels unlimited. It will only get more and more important with time. Understanding how it works and figuring out how I can play my part in improving it through a financial lens is my goal.</p>
+          <p>More of my projects and information about me can be found on <a href="https://nikhilvinod.com" target="_blank" rel="noopener noreferrer">my page</a>. You can contact me through <a href="https://www.linkedin.com/in/nikhil-vinod-bio" target="_blank" rel="noopener noreferrer">LinkedIn</a>. Please reach out if you have any issues or questions, or just want to connect.</p>
+          <p>The source for this project is available in the <a href="https://github.com/nikhilvinod23/ercot-power-market-game" target="_blank" rel="noopener noreferrer">GitHub repository</a>.</p>
+        </div>
+      </section>
+
+      <footer class="site-footer" aria-label="Site links">
+        <a href="#home" id="footer-home-link">Home</a>
+        <a href="#about" id="footer-about-link">About</a>
+      </footer>
     </main>
   </body>
 </html>
