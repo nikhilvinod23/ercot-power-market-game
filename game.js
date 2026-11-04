@@ -1450,7 +1450,7 @@
 
   function cacheElements() {
     [
-      "mode-select-screen", "lmp-mode-button", "network-mode-button", "day-ahead-mode-button", "mode-back-button", "day-ahead-select-screen", "day-ahead-mode-back-button", "day-ahead-full-reset-button", "day-ahead-level-circles", "day-ahead-level-message", "day-ahead-level-screen", "day-ahead-back-button", "day-ahead-reset-button", "day-ahead-help-button", "day-ahead-level-title", "day-ahead-level-description", "day-ahead-hours-summary", "day-ahead-demand", "day-ahead-reserve-summary", "day-ahead-network-summary", "day-ahead-forecast", "day-ahead-demand-curve", "day-ahead-offers", "day-ahead-stack", "day-ahead-stack-max", "day-ahead-run-button", "day-ahead-check-button", "day-ahead-reveal-button", "day-ahead-result", "day-ahead-prev-button", "day-ahead-next-button", "day-ahead-concept-modal", "day-ahead-concept-title", "day-ahead-concept-body", "day-ahead-concept-visual", "construction-select-screen", "construction-mode-back-button", "construction-full-reset-button", "construction-level-circles", "construction-level-screen", "construction-back-button", "construction-reset-button", "construction-help-button", "construction-level-title", "construction-level-description", "construction-piece-tray", "construction-map", "construction-lines", "construction-nodes", "construction-inspector", "construction-check-button", "construction-reveal-button", "construction-feedback", "construction-prev-button", "construction-next-button", "construction-concept-modal", "construction-concept-title", "construction-concept-body", "construction-concept-visual", "lmp-help-button", "lmp-concept-modal", "lmp-concept-title", "lmp-concept-body", "lmp-concept-visual", "level-select-screen", "level-screen", "level-circles", "level-select-message",
+      "mode-select-screen", "lmp-mode-button", "network-mode-button", "day-ahead-mode-button", "mode-back-button", "about-screen", "about-home-link", "footer-home-link", "footer-about-link", "day-ahead-select-screen", "day-ahead-mode-back-button", "day-ahead-full-reset-button", "day-ahead-level-circles", "day-ahead-level-message", "day-ahead-level-screen", "day-ahead-back-button", "day-ahead-reset-button", "day-ahead-help-button", "day-ahead-level-title", "day-ahead-level-description", "day-ahead-hours-summary", "day-ahead-demand", "day-ahead-reserve-summary", "day-ahead-network-summary", "day-ahead-forecast", "day-ahead-demand-curve", "day-ahead-offers", "day-ahead-stack", "day-ahead-stack-max", "day-ahead-run-button", "day-ahead-check-button", "day-ahead-reveal-button", "day-ahead-result", "day-ahead-prev-button", "day-ahead-next-button", "day-ahead-concept-modal", "day-ahead-concept-title", "day-ahead-concept-body", "day-ahead-concept-visual", "construction-select-screen", "construction-mode-back-button", "construction-full-reset-button", "construction-level-circles", "construction-level-screen", "construction-back-button", "construction-reset-button", "construction-help-button", "construction-level-title", "construction-level-description", "construction-piece-tray", "construction-map", "construction-lines", "construction-nodes", "construction-inspector", "construction-check-button", "construction-reveal-button", "construction-feedback", "construction-prev-button", "construction-next-button", "construction-concept-modal", "construction-concept-title", "construction-concept-body", "construction-concept-visual", "lmp-help-button", "lmp-concept-modal", "lmp-concept-title", "lmp-concept-body", "lmp-concept-visual", "level-select-screen", "level-screen", "level-circles", "level-select-message",
       "back-button", "reset-level-button", "level-page-title", "map-connections", "map-resources",
       "map-buses", "map-loads", "network-map", "map-title", "map-description", "map-hover-popover",
       "solve-popover", "check-network-button", "network-feedback", "completion-panel", "completion-title",
@@ -1551,6 +1551,7 @@
     els["construction-level-screen"].hidden = true;
     els["level-select-screen"].hidden = false;
     els["level-screen"].hidden = true;
+    els["about-screen"].hidden = true;
     const unlockedIds = levels.filter((level) => isUnlocked(level)).map((level) => level.id);
     const latestUnlockedId = Math.max(...unlockedIds);
     els["level-circles"].innerHTML = levels.map((level) => {
@@ -1584,6 +1585,18 @@
     els["construction-level-screen"].hidden = true;
     els["level-select-screen"].hidden = true;
     els["level-screen"].hidden = true;
+    els["about-screen"].hidden = true;
+  }
+
+  function renderAbout() {
+    LearningGuide.close();
+    state.screen = "about";
+    state.launching = false;
+    for (const id of ["mode-select-screen", "day-ahead-select-screen", "day-ahead-level-screen", "construction-select-screen", "construction-level-screen", "level-select-screen", "level-screen"]) {
+      els[id].hidden = true;
+    }
+    els["about-screen"].hidden = false;
+    window.scrollTo({ top: 0, behavior: "instant" });
   }
 
   function getDayAheadLevel(id = state.dayAheadLevelId) {
@@ -3973,6 +3986,9 @@
     els["network-mode-button"].addEventListener("click", renderConstructionSelect);
     els["day-ahead-mode-button"].addEventListener("click", renderDayAheadSelect);
     els["mode-back-button"].addEventListener("click", renderModeSelect);
+    els["footer-home-link"].addEventListener("click", (event) => { event.preventDefault(); renderModeSelect(); });
+    els["about-home-link"].addEventListener("click", (event) => { event.preventDefault(); renderModeSelect(); });
+    els["footer-about-link"].addEventListener("click", (event) => { event.preventDefault(); renderAbout(); });
     els["construction-mode-back-button"].addEventListener("click", renderModeSelect);
     els["day-ahead-mode-back-button"].addEventListener("click", renderModeSelect);
     els["day-ahead-full-reset-button"].addEventListener("click", resetDayAheadProgress);
