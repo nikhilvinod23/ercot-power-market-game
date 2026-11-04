@@ -10,6 +10,8 @@ const lessons = require('../level-lessons.js');
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'warning') errors.push(m.text()); });
   await page.goto(`http://127.0.0.1:${server.address().port}`);
+  assert.match(await page.locator('link[rel="stylesheet"]').getAttribute('href'), /\?v=3e9ed41$/);
+  assert.equal(await page.locator('script[src]').evaluateAll(scripts => scripts.every(script => new URL(script.src).searchParams.get('v') === '3e9ed41')), true);
   await page.locator('#footer-about-link').click();
   await page.locator('#about-screen').waitFor({ state: 'visible' });
   assert.match(await page.locator('#about-screen').innerText(), /shoutout Bill and Lloyd/);
