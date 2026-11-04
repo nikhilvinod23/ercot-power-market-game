@@ -41,6 +41,23 @@ const lessons = require('../level-lessons.js');
   assert.match(await page.locator('#day-ahead-result').innerText(), /Correct schedule/);
   await page.locator('#day-ahead-next-button').click();
   assert.equal(await page.locator('.term-guide').count(), 0);
+  assert.equal(await page.locator('.day-ahead-answer-panel h3').innerText(),'Your final answer');
+  assert.equal(await page.locator('.day-ahead-demand-panel #day-ahead-demand-curve').count(),1);
+  assert.equal(await page.locator('.day-ahead-answer-panel #day-ahead-demand-curve').count(),0);
+  for (const width of [320,390,760]) {
+    await page.setViewportSize({width,height:844});
+    const layout = await page.evaluate(() => {
+      const demand=document.querySelector('.day-ahead-demand-panel').getBoundingClientRect();
+      const resources=document.querySelector('.day-ahead-resource-panel').getBoundingClientRect();
+      const answer=document.querySelector('.day-ahead-answer-panel').getBoundingClientRect();
+      return {ordered:demand.bottom<=resources.top && resources.bottom<=answer.top,fits:document.documentElement.scrollWidth<=innerWidth};
+    });
+    assert.equal(layout.ordered,true,`Mobile panel order at ${width}`);
+    assert.equal(layout.fits,true,`Mobile width ${width}`);
+    await page.locator('.day-ahead-panel-jumps').getByRole('link',{name:'Final answer',exact:true}).click();
+    const titleBox=await page.locator('#day-ahead-stack-title').boundingBox();
+    assert.ok(titleBox.y>=0 && titleBox.y<200,`Mobile final-answer jump at ${width}`);
+  }
   await page.locator('.resource-value-input').first().fill('10');
   assert.equal(await page.locator('#day-ahead-input-wind').inputValue(), '10');
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -57,6 +74,9 @@ const lessons = require('../level-lessons.js');
     await audit.locator(`[data-day-ahead-level="${id}"]`).click();
     await audit.locator('#day-ahead-level-screen').waitFor({ state: 'visible' });
     assert.equal(await audit.locator('#day-ahead-level-description .lesson-description-rules').textContent(), lessons.get('day-ahead',id).rules);
+    const priceFields = audit.locator('.day-ahead-offer .resource-offer-price b');
+    assert.equal(await priceFields.count(), await audit.locator('.day-ahead-offer').count(),`Energy offer missing on level ${id}`);
+    for (const price of await priceFields.allTextContents()) assert.match(price,/\$[\d,.]+(?:–\$[\d,.]+)?\/MWh/);
     if (await audit.locator('.term-guide').count()) await audit.getByRole('button', { name: 'Close definitions' }).click();
     await audit.locator('#day-ahead-reveal-button').click();
     assert.match(await audit.locator('#day-ahead-result').innerText(), /Correct schedule/, `Day ahead ${id}`);

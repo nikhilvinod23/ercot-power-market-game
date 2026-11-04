@@ -50,15 +50,23 @@
           <div class="day-ahead-requirement-box"><span>Transmission limit</span><strong id="day-ahead-network-summary">None — single bus</strong></div>
         </div>
         <div id="day-ahead-forecast" class="day-ahead-forecast" hidden aria-label="Probability forecast"></div>
+        <nav class="day-ahead-panel-jumps" aria-label="Day-ahead sections">
+          <a href="#day-ahead-demand-title">Demand</a>
+          <a href="#day-ahead-offer-title">Resources</a>
+          <a href="#day-ahead-stack-title">Final answer</a>
+        </nav>
         <div class="day-ahead-layout">
-          <section class="day-ahead-panel" aria-labelledby="day-ahead-offer-title">
-            <h3 id="day-ahead-offer-title">Supply offers</h3>
+          <section class="day-ahead-panel day-ahead-demand-panel" aria-labelledby="day-ahead-demand-title">
+            <h3 id="day-ahead-demand-title">Demand</h3>
+            <div id="day-ahead-demand-curve" class="day-ahead-demand-curve" aria-label="Demand bid curve"></div>
+          </section>
+          <section class="day-ahead-panel day-ahead-resource-panel" aria-labelledby="day-ahead-offer-title">
+            <h3 id="day-ahead-offer-title">Resource choices</h3>
             <p class="day-ahead-panel-note">Set each resource's MW with its slider. Curve levels use the offer curve to price every MW.</p>
             <div id="day-ahead-offers" class="day-ahead-offers"></div>
           </section>
-          <section class="day-ahead-panel" aria-labelledby="day-ahead-stack-title">
-            <h3 id="day-ahead-stack-title">Your resource choices</h3>
-            <div id="day-ahead-demand-curve" class="day-ahead-demand-curve" aria-label="Demand bid curve"></div>
+          <section class="day-ahead-panel day-ahead-answer-panel" aria-labelledby="day-ahead-stack-title">
+            <h3 id="day-ahead-stack-title">Your final answer</h3>
             <div id="day-ahead-stack" class="day-ahead-stack"></div>
             <div class="day-ahead-stack-axis"><span>0 MW</span><span id="day-ahead-stack-max">80 MW offered</span></div>
             <div class="day-ahead-actions">

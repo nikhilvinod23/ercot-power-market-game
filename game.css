@@ -510,6 +510,23 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--blue); outl
 .learning-objective { padding: 14px 16px; background: var(--surface); border-radius: 10px; }
 .lesson-description-title { display: block; margin-bottom: 6px; color: var(--ink); font-size: .92rem; }
 .lesson-description-rules { display: block; color: var(--muted); font-size: .86rem; line-height: 1.65; }
+.day-ahead-layout { grid-template-areas: 'resources demand' 'resources answer'; grid-template-rows: auto 1fr; }
+.day-ahead-resource-panel { grid-area: resources; }
+.day-ahead-demand-panel { grid-area: demand; }
+.day-ahead-answer-panel { grid-area: answer; }
+.day-ahead-demand-panel .day-ahead-demand-curve { margin-bottom: 0; }
+.resource-offer-price b { font-variant-numeric: tabular-nums; }
+.day-ahead-panel-jumps { display: none; }
+@media (max-width:760px) {
+  .day-ahead-layout { grid-template-columns: minmax(0,1fr); grid-template-areas: 'demand' 'resources' 'answer'; grid-template-rows: auto auto auto; gap: 14px; }
+  .day-ahead-layout > .day-ahead-panel { position: static; min-width: 0; width: 100%; }
+  .day-ahead-demand-curve-grid { grid-template-columns: minmax(0,1fr); }
+  .day-ahead-offer-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .day-ahead-actions > button { flex: 1 1 140px; }
+  .day-ahead-panel-jumps { display: flex; position: sticky; top: 0; z-index: 8; gap: 6px; padding: 8px 0; margin-bottom: 8px; background: var(--page); }
+  .day-ahead-panel-jumps a { flex: 1; display: grid; place-items: center; min-height: 40px; padding: 8px 4px; background: var(--input-bg); border-radius: 7px; color: var(--ink); font-size: .78rem; text-decoration: none; }
+  .day-ahead-panel h3 { scroll-margin-top: 64px; }
+}
 @media (max-width:760px) { #construction-next-button, #day-ahead-next-button { flex: 0 1 auto; min-width: 110px; max-width: 48%; } }
 .construction-line-group.is-selected .construction-line { filter: drop-shadow(0 0 7px var(--blue)); }
 @media (max-width: 760px) { .tray-group-items .construction-node-piece { width: 88px; height: 88px; max-width: 100%; justify-self: center; aspect-ratio: 1; } }
