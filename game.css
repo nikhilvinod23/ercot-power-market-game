@@ -507,6 +507,9 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--blue); outl
 .is-tray-dragging:not(.tray-drag-ghost) { opacity: .35; }
 .level-circle.status-green.is-latest { animation: none; }
 #construction-next-button, #day-ahead-next-button, #next-level-button { margin-inline-start: auto; }
+.learning-objective { padding: 14px 16px; background: var(--surface); border-radius: 10px; }
+.lesson-description-title { display: block; margin-bottom: 6px; color: var(--ink); font-size: .92rem; }
+.lesson-description-rules { display: block; color: var(--muted); font-size: .86rem; line-height: 1.65; }
 @media (max-width:760px) { #construction-next-button, #day-ahead-next-button { flex: 0 1 auto; min-width: 110px; max-width: 48%; } }
 .construction-line-group.is-selected .construction-line { filter: drop-shadow(0 0 7px var(--blue)); }
 @media (max-width: 760px) { .tray-group-items .construction-node-piece { width: 88px; height: 88px; max-width: 100%; justify-self: center; aspect-ratio: 1; } }

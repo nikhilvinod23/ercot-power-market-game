@@ -1,5 +1,6 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert = require('node:assert/strict');
+const lessons = require('../level-lessons.js');
 (async () => {
   const server = require('../scripts/preview.cjs')(0);
   await new Promise(resolve => server.on('listening', resolve));
@@ -55,6 +56,7 @@ const assert = require('node:assert/strict');
   for (let id = 0; id <= 10; id++) {
     await audit.locator(`[data-day-ahead-level="${id}"]`).click();
     await audit.locator('#day-ahead-level-screen').waitFor({ state: 'visible' });
+    assert.equal(await audit.locator('#day-ahead-level-description .lesson-description-rules').textContent(), lessons.get('day-ahead',id).rules);
     if (await audit.locator('.term-guide').count()) await audit.getByRole('button', { name: 'Close definitions' }).click();
     await audit.locator('#day-ahead-reveal-button').click();
     assert.match(await audit.locator('#day-ahead-result').innerText(), /Correct schedule/, `Day ahead ${id}`);
@@ -65,6 +67,7 @@ const assert = require('node:assert/strict');
   for (let id = 0; id <= 10; id++) {
     await audit.locator(`[data-level="${id}"]`).click();
     await audit.locator('#level-screen').waitFor({ state: 'visible' });
+    assert.equal(await audit.locator('#level-description .lesson-description-rules').textContent(), lessons.get('lmp',id).rules);
     if (await audit.locator('.term-guide').count()) await audit.getByRole('button', { name: 'Close definitions' }).click();
     for (const viewport of [{width:1280,height:900},{width:390,height:844}]) {
       await audit.setViewportSize(viewport);
@@ -135,6 +138,13 @@ const assert = require('node:assert/strict');
   assert.equal(await audit.locator('[data-construction-node]').count(),2);
   await audit.locator('#construction-reveal-button').click();
   assert.match(await audit.locator('#construction-feedback').innerText(),/Success/);
+  await audit.locator('#construction-back-button').click();
+  for (let id=0;id<=10;id++) {
+    await audit.locator(`[data-construction-level="${id}"]`).click();
+    await audit.locator('#construction-level-screen').waitFor({state:'visible'});
+    assert.equal(await audit.locator('#construction-level-description .lesson-description-rules').textContent(),lessons.get('construction',id).rules);
+    await audit.locator('#construction-back-button').click();
+  }
   assert.equal(await audit.locator('.level-status-badge').count(),0);
   assert.deepEqual(errors, []);
   await browser.close();

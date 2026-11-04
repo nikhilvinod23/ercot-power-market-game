@@ -42,6 +42,7 @@ Level progress, saved inputs, and the light/night theme are stored in browser `l
 - `game.js` — levels, market calculations, interactions, and saved progress
 - `game.css` — game styling and responsive layout
 - `ui-polish.js` — consistent control labels, definition access, numeric inputs, and result presentation
+- `level-lessons.js` — specific rules and feature explanations for each level in all three modes
 
 ## Teaching model and review checks
 

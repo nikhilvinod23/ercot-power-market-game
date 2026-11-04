@@ -3774,9 +3774,11 @@
     const root = document.getElementById(mode === 'lmp' ? 'level-screen' : `${mode}-level-screen`);
     const description = root.querySelector(mode === 'lmp' ? '#level-description' : `#${mode}-level-description`);
     const lmp = mode === 'lmp', construction = mode === 'construction';
-    if (lmp) description.textContent = `Find each grid node and load's LMP, then balance the transmission flows to serve ${level.loadDemand} MW. Use the displayed offers and line limits.`;
-    else if (construction) description.textContent = `${level.description} Any balanced network within the limits is accepted.`;
-    else description.textContent = level.controlMode === 'forecastHedge' ? 'Calculate expected wind and demand from the probabilities. Schedule expected demand using expected wind first, then firm generation. Review each possible outcome after checking.' : ['commitment', 'commitmentReserve', 'integrated'].includes(level.controlMode) ? 'Choose which units are ON. Set an energy limit for each unit and hold the required reserve. Minimize the schedule cost across all displayed hours.' : level.controlMode === 'reserve' ? 'Hold the required reserve while leaving enough capacity for energy. Choose the reserve allocation with the lowest combined cost.' : 'Choose resource quantities to match accepted demand at the lowest offered cost. Compare the next increment on each offer curve and respect forecast availability and transmission limits.';
+    const lesson = LevelLessons.get(mode, level.id);
+    description.replaceChildren();
+    const title = document.createElement('strong'); title.className = 'lesson-description-title'; title.textContent = lesson.title;
+    const rules = document.createElement('span'); rules.className = 'lesson-description-rules'; rules.textContent = lesson.rules;
+    description.append(title, rules);
     description.classList.add('learning-objective');
     if ((lmp || construction) && !root.querySelector('.map-legend')) description.insertAdjacentHTML('afterend', '<div class="map-legend"><span><i></i>Generator</span><span><i></i>Grid node</span><span><i></i>Load</span><span>Line: transmission</span></div>');
     let terms = root.querySelector('.level-terms');
